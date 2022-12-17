@@ -169,7 +169,7 @@ class Image2Vec(pl.LightningModule):
         if self.hparams.vae:
             embeddings['vae_embeddings'] = self.vae_mlp(features)[:, :self.hparams.vae_latent_dim]
         if self.hparams.simclr:
-            embeddings['simclr_embeddings'] = self.simclr_mlp(features)
+            embeddings['simclr_embeddings'] = F.normalize(self.simclr_mlp(features), dim=1)
         if self.hparams.vicreg:
             embeddings['vicreg_embeddings'] = self.vicreg_mlp(features)
         return embeddings
