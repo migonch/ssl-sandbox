@@ -23,6 +23,7 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--lr', type=float, default=3e-4)
     parser.add_argument('--num_workers', type=int, default=0)
+    parser.add_argument('--checkpoint')
 
     return parser.parse_args()
 
@@ -61,6 +62,7 @@ def main(args):
         logger=logger,
         callbacks=[LearningRateMonitor(), LogEmbeddings()],
         accelerator='gpu',
+        resume_from_checkpoint=args.checkpoint
     )
     trainer.fit(model, datamodule=dm)
 
