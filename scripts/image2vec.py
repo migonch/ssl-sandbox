@@ -54,11 +54,11 @@ def main(args):
             transforms.Lambda(lambda x: x.repeat(3, 1, 1))
         ])
         dm.val_transforms = transforms.Compose([
-            dm.val_transforms,
+            dm.default_transforms(),
             transforms.Lambda(lambda x: x.repeat(3, 1, 1))
         ])
         dm.test_transforms = transforms.Compose([
-            dm.test_transforms,
+            dm.default_transforms(),
             transforms.Lambda(lambda x: x.repeat(3, 1, 1))
         ])
     elif args.dataset == 'cifar10':
