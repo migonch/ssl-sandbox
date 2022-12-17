@@ -97,7 +97,7 @@ class Image2Vec(pl.LightningModule):
         return loss, logs
 
     def compute_vae_loss(self, features: torch.Tensor, images: torch.Tensor) -> torch.Tensor:
-        mean, logvar = torch.split(self.vae_mlp(features), self.hparams.ae_latent_dim, dim=1)
+        mean, logvar = torch.split(self.vae_mlp(features), self.hparams.vae_latent_dim, dim=1)
         std = torch.exp(logvar / 2)
         q = torch.distributions.Normal(mean, std)
         p = torch.distributions.Normal(torch.zeros_like(mean), torch.ones_like(std))
