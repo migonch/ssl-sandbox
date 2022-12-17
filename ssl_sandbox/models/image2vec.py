@@ -8,7 +8,7 @@ from torchvision import transforms
 from torchmetrics.functional import accuracy
 
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import TensorBoardLogger
 
 from pl_bolts.models.autoencoders.components import (
     resnet18_encoder, resnet18_decoder, resnet50_encoder, resnet50_decoder
@@ -246,12 +246,9 @@ class LogEmbeddings(pl.Callback):
         ])
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        logger: WandbLogger = trainer.logger
+        logger: TensorBoardLogger = trainer.logger
 
-        logger.log_table(
-            key='embeddings',
-            dataframe=pd.DataFrame(self.data)
-        )
+        pd.DataFrame(self.data).to_csv(f'{logger.log_dir}/embeddings.csv')
 
         # clear data after each epoch
         self.data = []

@@ -3,7 +3,7 @@ from argparse import ArgumentParser
 from torchvision import transforms
 
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import WandbLogger
+from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import LearningRateMonitor
 
 from pl_bolts.datamodules import CIFAR10DataModule, MNISTDataModule
@@ -18,7 +18,6 @@ def parse_args():
     parser.add_argument('--mnist_dir')
     parser.add_argument('--cifar10_dir')
     parser.add_argument('--logs_dir')
-    parser.add_argument('--name')
 
     parser.add_argument('--supervised', default=False, action='store_true')
     parser.add_argument('--ae', default=False, action='store_true')
@@ -26,8 +25,10 @@ def parse_args():
     parser.add_argument('--vae', default=False, action='store_true')
     parser.add_argument('--vae_latent_dim', type=int, default=128)
     parser.add_argument('--simclr', default=False, action='store_true')
+
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--lr', type=float, default=3e-4)
+    parser.add_argument('--num_epochs', type=int, default=150)
     parser.add_argument('--num_workers', type=int, default=0)
     parser.add_argument('--checkpoint')
 
@@ -77,13 +78,8 @@ def main(args):
         simclr=args.simclr,
         lr=args.lr
     )
-    logger = WandbLogger(
-        name=args.name,
-        save_dir=args.logs_dir,
-        project='ssl-sandbox'
-    )
     trainer = pl.Trainer(
-        logger=logger,
+        logger=TensorBoardLogger(save_dir=args.logs_dir, name=''),
         callbacks=[LearningRateMonitor(), LogEmbeddings()],
         accelerator='gpu',
         resume_from_checkpoint=args.checkpoint
