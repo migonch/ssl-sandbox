@@ -1,5 +1,5 @@
 from typing import *
-import pandas as pd
+import json
 
 import torch
 from torch import nn
@@ -245,7 +245,8 @@ class LogEmbeddings(pl.Callback):
     def on_validation_epoch_end(self, trainer, pl_module):
         logger: TensorBoardLogger = trainer.logger
 
-        pd.DataFrame(self.data).to_csv(f'{logger.log_dir}/embeddings.csv')
+        with open(f'{logger.log_dir}/embeddings.json', 'w') as f:
+            json.dump(self.data, f)
 
         # clear data after each epoch
         self.data = []
