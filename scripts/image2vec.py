@@ -50,7 +50,7 @@ def main(args):
             transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
         ])
         dm.train_transforms = TrainDataTransform(
-            image_size=dm.dims[-1],
+            image_size=28,
             gaussian_blur=False,
             jitter_strength=0.5,
             final_transforms=mnist_transforms
@@ -65,7 +65,7 @@ def main(args):
             val_split=1000,
         )
         dm.train_transforms = TrainDataTransform(
-            image_size=dm.dims[1],
+            image_size=32,
             gaussian_blur=False,
             jitter_strength=0.5,
             final_transforms=dm.default_transforms()
@@ -74,7 +74,7 @@ def main(args):
         raise ValueError(f'--dataset {args.dataset} is not supported')
 
     model = Image2Vec(
-        image_size=dm.dims[-1],
+        image_size=32,
         num_classes=dm.num_classes,
         supervised=args.supervised,
         ae=args.ae,
