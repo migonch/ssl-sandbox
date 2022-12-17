@@ -120,7 +120,7 @@ class Image2Vec(pl.LightningModule):
         embeddings_1 = F.normalize(self.simclr_mlp(features_1), dim=1)  # (batch_size, simclr_embed_dim)
         embeddings_2 = F.normalize(self.simclr_mlp(features_2), dim=1)  # (batch_size, simclr_embed_dim)
         sim = torch.matmul(embeddings_1, embeddings_2.T)  # (batch_size, batch_size)
-        return (sim / self.hparams.simclr_temperature).log_softmax(dim=1).diag().mean()
+        return -(sim / self.hparams.simclr_temperature).log_softmax(dim=1).diag().mean()
 
     def compute_vicreg_loss(self, features_1: torch.Tensor, features_2: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
