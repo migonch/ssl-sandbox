@@ -1,10 +1,12 @@
 from argparse import ArgumentParser
 
+from torchvision import transforms
+
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning.callbacks import LearningRateMonitor
 
-from pl_bolts.datamodules import CIFAR10DataModule
+from pl_bolts.datamodules import CIFAR10DataModule, MNISTDataModule
 from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
 
 from ssl_sandbox.models.image2vec import Image2Vec, TrainDataTransform, LogEmbeddings
@@ -12,7 +14,9 @@ from ssl_sandbox.models.image2vec import Image2Vec, TrainDataTransform, LogEmbed
 
 def parse_args():
     parser = ArgumentParser()
-    parser.add_argument('--cifar_dir')
+    parser.add_argument('--dataset')
+    parser.add_argument('--mnist_dir')
+    parser.add_argument('--cifar10_dir')
     parser.add_argument('--logs_dir')
     parser.add_argument('--name')
 
@@ -31,19 +35,37 @@ def parse_args():
 
 
 def main(args):
-    dm = CIFAR10DataModule(
-        data_dir=args.cifar_dir,
-        num_workers=args.num_workers,
-        normalize=True,
-        batch_size=args.batch_size,
-        val_split=1000,
-    )
-    dm.train_transforms = TrainDataTransform(
-        image_size=dm.dims[1],
-        gaussian_blur=False,
-        jitter_strength=0.5,
-        normalize=cifar10_normalization()
-    )
+    if args.dataset == 'mnist':
+        dm = MNISTDataModule(
+            data_dir=args.mnist_dir,
+            num_workers=args.num_workers,
+            normalize=True,
+            batch_size=args.batch_size,
+            val_split=1000
+        )
+        dm.train_transforms = TrainDataTransform(
+            image_size=dm.dims[-1],
+            gaussian_blur=False,
+            jitter_strength=0.5,
+            normalize=transforms.Normalize(mean=(0.5,), std=(0.5,))
+        )
+    elif args.dataset == 'cifar10':
+        dm = CIFAR10DataModule(
+            data_dir=args.cifar10_dir,
+            num_workers=args.num_workers,
+            normalize=True,
+            batch_size=args.batch_size,
+            val_split=1000,
+        )
+        dm.train_transforms = TrainDataTransform(
+            image_size=dm.dims[1],
+            gaussian_blur=False,
+            jitter_strength=0.5,
+            normalize=cifar10_normalization()
+        )
+    else:
+        raise ValueError(f'--dataset {args.dataset} is not supported')
+
     model = Image2Vec(
         image_size=dm.dims[-1],
         num_classes=dm.num_classes,
