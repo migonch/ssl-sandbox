@@ -88,6 +88,7 @@ def main(args):
         logger=TensorBoardLogger(save_dir=args.logs_dir, name=''),
         callbacks=[LearningRateMonitor(), LogEmbeddings()],
         accelerator='gpu',
+        max_epochs=args.num_epochs,
         resume_from_checkpoint=args.checkpoint
     )
     trainer.fit(model, datamodule=dm)
