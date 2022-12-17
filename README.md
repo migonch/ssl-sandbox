@@ -9,6 +9,10 @@ Then use
 git clone https://github.com/mishagoncharov/ssl-sandbox.git && cd ssl-sandbox && pip install -e .
 ```
 
+For now, to run experiments you also need to
+1) Sign up at https://wandb.ai/site
+2) Run `wandb login` in a command line and paste a key from https://wandb.ai/authorize.
+
 ## Experiments
 To train and validate a supervised classifier on CIFAR10 dataset (it will be downloaded automatically), run
 ```
