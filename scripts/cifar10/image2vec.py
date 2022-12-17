@@ -18,7 +18,9 @@ def parse_args():
 
     parser.add_argument('--supervised', default=False, action='store_true')
     parser.add_argument('--ae', default=False, action='store_true')
+    parser.add_argument('--ae_latent_dim', type=int, default=128)
     parser.add_argument('--vae', default=False, action='store_true')
+    parser.add_argument('--vae_latent_dim', type=int, default=128)
     parser.add_argument('--simclr', default=False, action='store_true')
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--lr', type=float, default=3e-4)
@@ -47,9 +49,9 @@ def main(args):
         num_classes=dm.num_classes,
         supervised=args.supervised,
         ae=args.ae,
-        ae_latent_dim=128,
+        ae_latent_dim=args.ae_latent_dim,
         vae=args.vae,
-        vae_latent_dim=128,
+        vae_latent_dim=args.vae_latent_dim,
         simclr=args.simclr,
         lr=args.lr
     )
