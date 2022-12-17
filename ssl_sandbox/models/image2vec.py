@@ -1,4 +1,5 @@
 from typing import *
+import pandas as pd
 
 import torch
 from torch import nn
@@ -34,7 +35,6 @@ class Image2Vec(pl.LightningModule):
             simclr_temperature: float = 0.1,
             vicreg: bool = False,
             vicreg_embed_dim: int = 2048,
-            simsiam: bool = False,
             # architecture
             architecture: Literal['resnet18', 'resnet50'] = 'resnet18',
             first_conv: bool = False,
@@ -42,7 +42,7 @@ class Image2Vec(pl.LightningModule):
             # optimization
             lr: float = 3e-4,
     ) -> None:
-        assert supervised or ae or vae or simclr or vicreg or simsiam
+        assert supervised or ae or vae or simclr or vicreg
         assert not (ae and vae)
 
         super().__init__()
@@ -83,9 +83,6 @@ class Image2Vec(pl.LightningModule):
         if vicreg:
             self.vicreg_mlp = MLP(feat_dim, feat_dim, vicreg_embed_dim)
 
-        if simsiam:
-            self.simsiam_mlp = MLP(feat_dim, feat_dim, feat_dim)
-
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         return self.encoder(images)
 
@@ -125,9 +122,6 @@ class Image2Vec(pl.LightningModule):
     def compute_vicreg_loss(self, features_1: torch.Tensor, features_2: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError
 
-    def compute_simsiam_loss(self, features_1: torch.Tensor, features_2: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError
-
     def training_step(self, batch: Tuple, batch_idx: int) -> torch.Tensor:
         (images, images_1, images_2), labels = batch
         features, features_1, features_2 = self(images), self(images_1), self(images_2)
@@ -155,11 +149,6 @@ class Image2Vec(pl.LightningModule):
             self.log('train/vicreg_loss', vicreg_loss, on_epoch=True)
             loss += vicreg_loss
 
-        if self.hparams.simsiam:
-            simsiam_loss = self.compute_simsiam_loss(features_1, features_2)
-            self.log('train/simsiam_loss', simsiam_loss, on_epoch=True)
-            loss += simsiam_loss
-
         self.log('train/total_loss', loss, on_epoch=True)
         return loss
 
@@ -173,7 +162,17 @@ class Image2Vec(pl.LightningModule):
             num_classes=self.hparams.num_classes
         )
         self.log('val/accuracy', acc)
-        return features
+
+        embeddings = {'common_features': features}
+        if self.hparams.ae:
+            embeddings['ae_embeddings'] = self.ae_mlp(features)
+        if self.hparams.vae:
+            embeddings['vae_embeddings'] = self.vae_mlp(features)[:, :self.hparams.vae_latent_dim]
+        if self.hparams.simclr:
+            embeddings['simclr_embeddings'] = self.simclr_mlp(features)
+        if self.hparams.vicreg:
+            embeddings['vicreg_embeddings'] = self.vicreg_mlp(features)
+        return embeddings
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
@@ -241,15 +240,17 @@ class LogEmbeddings(pl.Callback):
 
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
         _, labels = batch
-        self.data.extend([[e.tolist(), str(l.item())] for e, l in zip(outputs, labels)])
+        self.data.extend([
+            {k: v[i].tolist() for k, v in outputs.items()} | {'label': str(l.item())}
+            for i, l in enumerate(labels)
+        ])
 
     def on_validation_epoch_end(self, trainer, pl_module):
         logger: WandbLogger = trainer.logger
 
         logger.log_table(
             key='embeddings',
-            columns=['embedding', 'label'],
-            data=self.data
+            dataframe=pd.DataFrame(self.data)
         )
 
         # clear data after each epoch

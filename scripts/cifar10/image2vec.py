@@ -14,7 +14,7 @@ def parse_args():
     parser = ArgumentParser()
     parser.add_argument('--cifar_dir')
     parser.add_argument('--logs_dir')
-    parser.add_argument('--num_workers', type=int, default=0)
+    parser.add_argument('--name')
 
     parser.add_argument('--supervised', default=False, action='store_true')
     parser.add_argument('--ae', default=False, action='store_true')
@@ -22,6 +22,7 @@ def parse_args():
     parser.add_argument('--simclr', default=False, action='store_true')
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--lr', type=float, default=3e-4)
+    parser.add_argument('--num_workers', type=int, default=0)
 
     return parser.parse_args()
 
@@ -52,6 +53,7 @@ def main(args):
         lr=args.lr
     )
     logger = WandbLogger(
+        name=args.name,
         save_dir=args.logs_dir,
         project='ssl-sandbox'
     )
