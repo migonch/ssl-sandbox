@@ -44,23 +44,18 @@ def main(args):
             batch_size=args.batch_size,
             val_split=1000
         )
+        mnist_transforms = transforms.Compose([
+            dm.default_transforms(),
+            transforms.Resize(size=32),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
+        ])
         dm.train_transforms = TrainDataTransform(
             image_size=dm.dims[-1],
             gaussian_blur=False,
             jitter_strength=0.5,
-            normalize=transforms.Compose([
-                transforms.Normalize(mean=(0.5,), std=(0.5,)),
-                transforms.Lambda(lambda x: x.repeat(3, 1, 1))
-            ])
+            final_transforms=mnist_transforms
         )
-        dm.val_transforms = transforms.Compose([
-            dm.default_transforms(),
-            transforms.Lambda(lambda x: x.repeat(3, 1, 1))
-        ])
-        dm.test_transforms = transforms.Compose([
-            dm.default_transforms(),
-            transforms.Lambda(lambda x: x.repeat(3, 1, 1))
-        ])
+        dm.val_transforms = dm.test_transforms = mnist_transforms
     elif args.dataset == 'cifar10':
         dm = CIFAR10DataModule(
             data_dir=args.cifar10_dir,
@@ -73,7 +68,7 @@ def main(args):
             image_size=dm.dims[1],
             gaussian_blur=False,
             jitter_strength=0.5,
-            normalize=cifar10_normalization()
+            final_transforms=dm.default_transforms()
         )
     else:
         raise ValueError(f'--dataset {args.dataset} is not supported')

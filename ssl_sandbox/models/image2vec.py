@@ -188,7 +188,7 @@ class TrainDataTransform:
             image_size: int,
             gaussian_blur: bool = True,
             jitter_strength: float = 1.0,
-            normalize: Optional[nn.Module] = None
+            final_transforms: nn.Module = transforms.ToTensor()
     ) -> None:
         """Initialize transforms.
 
@@ -220,10 +220,7 @@ class TrainDataTransform:
             augmentations.append(transforms.RandomApply([transforms.GaussianBlur(kernel_size)], p=0.5))
 
         self.augmentations = transforms.Compose(augmentations)
-        self.final_transforms = transforms.Compose([
-            transforms.ToTensor(),
-            normalize or nn.Identity()
-        ])
+        self.final_transforms = final_transforms
 
     def __call__(self, images):
         images_1 = self.final_transforms(self.augmentations(images))
