@@ -166,7 +166,13 @@ class Image2Vec(pl.LightningModule):
     def validation_step(self, batch: Tuple, batch_idx: int) -> torch.Tensor:
         images, labels = batch
         features = self(images)
-        self.log('val/accuracy', accuracy(self.cls_mlp(features), labels, task='multiclass'))
+        acc = accuracy(
+            preds=self.cls_mlp(features),
+            target=labels,
+            task='multiclass',
+            num_classes=self.hparams.num_classes
+        )
+        self.log('val/accuracy', acc)
         return features
 
     def configure_optimizers(self):
