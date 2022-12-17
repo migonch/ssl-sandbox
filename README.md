@@ -6,5 +6,5 @@ Make sure that you have installed [torch](https://pytorch.org/) compatible with 
 
 Then use
 ```
-git clone https://github.com/migonch/ssl-sandbox.git && cd ssl-sandbox && pip install -e .
+git clone https://github.com/mishagoncharov/ssl-sandbox.git && cd ssl-sandbox && pip install -e .
 ```
