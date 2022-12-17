@@ -36,7 +36,7 @@ class Image2Vec(pl.LightningModule):
             vicreg_embed_dim: int = 2048,
             simsiam: bool = False,
             # architecture
-            architecture: str = 'resnet18',
+            architecture: Literal['resnet18', 'resnet50'] = 'resnet18',
             first_conv: bool = False,
             maxpool1: bool = False,
             # optimization
@@ -89,10 +89,10 @@ class Image2Vec(pl.LightningModule):
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         return self.encoder(images)
 
-    def compute_cls_loss(self, features: torch.Tensor, gt_labels: torch.Tensor) -> torch.Tensor:
+    def compute_cls_loss(self, features: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         if not self.hparams.supervised:
             features = features.detach()
-        return F.cross_entropy(self.cls_mlp(features), gt_labels)
+        return F.cross_entropy(self.cls_mlp(features), labels)
 
     def compute_ae_loss(self, features: torch.Tensor, images: torch.Tensor) -> torch.Tensor:
         loss = F.mse_loss(self.decoder(self.ae_mlp(features)), images)
@@ -129,10 +129,10 @@ class Image2Vec(pl.LightningModule):
         raise NotImplementedError
 
     def training_step(self, batch: Tuple, batch_idx: int) -> torch.Tensor:
-        (images, images_1, images_2), gt_labels = batch
+        (images, images_1, images_2), labels = batch
         features, features_1, features_2 = self(images), self(images_1), self(images_2)
 
-        loss = self.compute_cls_loss(features, gt_labels)
+        loss = self.compute_cls_loss(features, labels)
         self.log('train/cls_loss', loss, on_epoch=True)
 
         if self.hparams.ae:
@@ -164,10 +164,9 @@ class Image2Vec(pl.LightningModule):
         return loss
 
     def validation_step(self, batch: Tuple, batch_idx: int) -> torch.Tensor:
-        images, gt_labels = batch
+        images, labels = batch
         features = self(images)
-        pred_labels = self.cls_mlp(features).argmax(dim=1)
-        self.log('val/accuracy', accuracy(pred_labels, gt_labels))
+        self.log('val/accuracy', accuracy(self.cls_mlp(features), labels, task='multiclass'))
         return features
 
     def configure_optimizers(self):
@@ -235,8 +234,8 @@ class LogEmbeddings(pl.Callback):
         self.data = []
 
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx):
-        _, gt_labels = batch
-        self.data.extend([[e.tolist(), str(l.item())] for e, l in zip(outputs, gt_labels)])
+        _, labels = batch
+        self.data.extend([[e.tolist(), str(l.item())] for e, l in zip(outputs, labels)])
 
     def on_validation_epoch_end(self, trainer, pl_module):
         logger: WandbLogger = trainer.logger
