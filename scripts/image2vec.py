@@ -44,12 +44,23 @@ def main(args):
             batch_size=args.batch_size,
             val_split=1000
         )
-        dm.train_transforms = TrainDataTransform(
-            image_size=dm.dims[-1],
-            gaussian_blur=False,
-            jitter_strength=0.5,
-            normalize=transforms.Normalize(mean=(0.5,), std=(0.5,))
-        )
+        dm.train_transforms = transforms.Compose([
+            TrainDataTransform(
+                image_size=dm.dims[-1],
+                gaussian_blur=False,
+                jitter_strength=0.5,
+                normalize=transforms.Normalize(mean=(0.5,), std=(0.5,))
+            ),
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1))
+        ])
+        dm.val_transforms = transforms.Compose([
+            dm.val_transforms,
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1))
+        ])
+        dm.test_transforms = transforms.Compose([
+            dm.test_transforms,
+            transforms.Lambda(lambda x: x.repeat(3, 1, 1))
+        ])
     elif args.dataset == 'cifar10':
         dm = CIFAR10DataModule(
             data_dir=args.cifar10_dir,
