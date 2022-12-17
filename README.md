@@ -1,4 +1,4 @@
-# ssl-sandbox
+# ssl
 Sandbox for comparison self-supervised learning methods
 
 ## Installation
