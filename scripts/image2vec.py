@@ -78,9 +78,9 @@ def main(args):
         num_classes=dm.num_classes,
         supervised=args.supervised,
         ae=args.ae,
-        ae_latent_dim=args.ae_latent_dim,
+        ae_dim=args.ae_latent_dim,
         vae=args.vae,
-        vae_latent_dim=args.vae_latent_dim,
+        vae_dim=args.vae_latent_dim,
         simclr=args.simclr,
         lr=args.lr
     )

@@ -1,10 +1,11 @@
 from typing import *
 import json
+import random
+import math
 
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torchvision import transforms
 from torchmetrics.functional import accuracy
 
 import pytorch_lightning as pl
@@ -14,6 +15,7 @@ from pl_bolts.models.autoencoders.components import (
     resnet18_encoder, resnet18_decoder, resnet50_encoder, resnet50_decoder
 )
 
+from ssl_sandbox.functional import entropy
 from .blocks import MLP
 
 
@@ -23,23 +25,24 @@ class Image2Vec(pl.LightningModule):
             image_size: int,
             num_classes: int,
             supervised: bool = True,
-            # ae/vae stuff
             ae: bool = False,
-            ae_latent_dim: Optional[int] = None,
+            ae_dim: Optional[int] = None,
             vae: bool = False,
-            vae_latent_dim: Optional[int] = None,
+            vae_dim: Optional[int] = None,
             vae_beta: float = 0.1,
-            # ssl stuff
             simclr: bool = False,
-            simclr_embed_dim: int = 128,
-            simclr_temperature: float = 0.1,
+            simclr_dim: int = 128,
+            simclr_temp: float = 0.1,
             vicreg: bool = False,
-            vicreg_embed_dim: int = 2048,
-            # architecture
+            vicreg_dim: int = 8192,
+            qq: bool = False,
+            qq_num_predicates: int = 8192,
+            qq_num_predicates_per_iter: int = 1024,
+            qq_sharpen_temp: float = 0.25,
+            qq_reg_weight: float = 1e2,
             architecture: Literal['resnet18', 'resnet50'] = 'resnet18',
-            first_conv: bool = False,
-            maxpool1: bool = False,
-            # optimization
+            first_conv: bool = True,
+            maxpool1: bool = True,
             lr: float = 3e-4,
     ) -> None:
         assert supervised or ae or vae or simclr or vicreg
@@ -51,11 +54,11 @@ class Image2Vec(pl.LightningModule):
 
         if architecture == 'resnet18':
             encoder_factory = resnet18_encoder
-            feat_dim = 512
+            vec_dim = 512
             decoder_factory = resnet18_decoder
         elif architecture == 'resnet50':
             encoder_factory = resnet50_encoder
-            feat_dim = 2048
+            vec_dim = 2048
             decoder_factory = resnet50_decoder
         else:
             raise ValueError(f'architecture {architecture} is not supported.')
@@ -64,40 +67,51 @@ class Image2Vec(pl.LightningModule):
         self.encoder = encoder_factory(first_conv, maxpool1)
 
         # classification head
-        self.cls_mlp = MLP(feat_dim, feat_dim, num_classes)
+        self.cls_head = nn.Linear(vec_dim, num_classes)
 
         # ae or vae stuff
         if ae:
-            assert ae_latent_dim is not None
-            self.ae_mlp = MLP(feat_dim, feat_dim, ae_latent_dim)
-            self.decoder = decoder_factory(ae_latent_dim, image_size, first_conv, maxpool1)
+            assert ae_dim is not None
+            self.ae_mlp = MLP(vec_dim, vec_dim, ae_dim)
+            self.decoder = decoder_factory(ae_dim, image_size, first_conv, maxpool1)
         elif vae:
-            assert vae_latent_dim is not None
-            self.vae_mlp = MLP(feat_dim, feat_dim, 2 * vae_latent_dim)
-            self.decoder = decoder_factory(vae_latent_dim, image_size, first_conv, maxpool1)
+            assert vae_dim is not None
+            self.vae_mlp = MLP(vec_dim, vec_dim, 2 * vae_dim)
+            self.decoder = decoder_factory(vae_dim, image_size, first_conv, maxpool1)
 
         # ssl stuff
         if simclr:
-            self.simclr_mlp = MLP(feat_dim, feat_dim, simclr_embed_dim)
+            self.simclr_mlp = MLP(vec_dim, vec_dim, simclr_dim)
 
         if vicreg:
-            self.vicreg_mlp = MLP(feat_dim, feat_dim, vicreg_embed_dim)
+            self.vicreg_mlp = MLP(vec_dim, vec_dim, vicreg_dim)
+        
+        if qq:
+            self.qq_head = nn.Linear(vec_dim, qq_num_predicates)
+            self.qq_priors = torch.full((qq_num_predicates, qq_num_predicates, 4), 1 / 4)  # only upper triangle is used
+
+        self.automatic_optimization = False
 
     def forward(self, images: torch.Tensor) -> torch.Tensor:
         return self.encoder(images)
 
-    def compute_cls_loss(self, features: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
+    def cls_step(self, images: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
         if not self.hparams.supervised:
-            features = features.detach()
-        return F.cross_entropy(self.cls_mlp(features), labels)
+            with torch.no_grad():
+                vecs = self(images)
+        else:
+            vecs = self(images)
+        loss = F.cross_entropy(self.cls_head(vecs), labels)
+        self.log('train/cls_loss', loss, on_epoch=True)
+        self.manual_backward(loss)
 
-    def compute_ae_loss(self, features: torch.Tensor, images: torch.Tensor) -> torch.Tensor:
-        loss = F.mse_loss(self.decoder(self.ae_mlp(features)), images)
-        logs = {'ae_recon_loss': loss}
-        return loss, logs
+    def ae_step(self, images: torch.Tensor) -> torch.Tensor:
+        loss = F.mse_loss(self.decoder(self.ae_mlp(self(images))), images)
+        self.log('train/ae_loss', loss, on_epoch=True)
+        self.manual_backward(loss)
 
-    def compute_vae_loss(self, features: torch.Tensor, images: torch.Tensor) -> torch.Tensor:
-        mean, logvar = torch.split(self.vae_mlp(features), self.hparams.vae_latent_dim, dim=1)
+    def vae_step(self, images: torch.Tensor) -> torch.Tensor:
+        mean, logvar = torch.split(self.vae_mlp(self(images)), self.hparams.vae_dim, dim=1)
         std = torch.exp(logvar / 2)
         q = torch.distributions.Normal(mean, std)
         p = torch.distributions.Normal(torch.zeros_like(mean), torch.ones_like(std))
@@ -106,127 +120,109 @@ class Image2Vec(pl.LightningModule):
         kl = torch.distributions.kl_divergence(q, p).mean()
 
         loss = recon_loss + self.hparams.vae_beta * kl
-        logs = {
-            'vae_recon_loss': recon_loss,
-            'vae_kl': kl,
-            'vae_loss': loss,
-        }
-        return loss, logs
+        self.log('train/vae_loss', loss, on_epoch=True)
+        self.manual_backward(loss)
 
-    def compute_simclr_loss(self, features_1: torch.Tensor, features_2: torch.Tensor) -> torch.Tensor:
-        embeddings_1 = F.normalize(self.simclr_mlp(features_1), dim=1)  # (batch_size, simclr_embed_dim)
-        embeddings_2 = F.normalize(self.simclr_mlp(features_2), dim=1)  # (batch_size, simclr_embed_dim)
-        sim = torch.matmul(embeddings_1, embeddings_2.T)  # (batch_size, batch_size)
-        return -(sim / self.hparams.simclr_temperature).log_softmax(dim=1).diag().mean()
+    def simclr_step(self, images_1: torch.Tensor, images_2: torch.Tensor) -> torch.Tensor:
+        embeds_1 = F.normalize(self.simclr_mlp(self(images_1)), dim=1)  # (batch_size, simclr_dim)
+        embeds_2 = F.normalize(self.simclr_mlp(self(images_2)), dim=1)  # (batch_size, simclr_dim)
 
-    def compute_vicreg_loss(self, features_1: torch.Tensor, features_2: torch.Tensor) -> torch.Tensor:
+        temp = self.hparams.simclr_temp
+        logits_11 = torch.matmul(embeds_1, embeds_1.T) / temp
+        logits_11.fill_diagonal_(float('-inf'))
+        logits_12 = torch.matmul(embeds_1, embeds_2.T) / temp
+        pos_logits = logits_12.diag()
+        if self.hparams.simclr_decoupled:
+            logits_12.fill_diagonal_(float('-inf'))
+        logits_22 = torch.matmul(embeds_2, embeds_2.T) / temp
+        logits_22.fill_diagonal_(float('-inf'))
+
+        loss_1 = torch.mean(-pos_logits + torch.logsumexp(torch.cat([logits_11, logits_12], dim=1), dim=1))
+        loss_2 = torch.mean(-pos_logits + torch.logsumexp(torch.cat([logits_12.T, logits_22], dim=1), dim=1))
+        loss = (loss_1 + loss_2) / 2
+        self.log(f'train/simclr_loss', loss, on_epoch=True)
+        self.manual_backward(loss)
+
+    def vicreg_step(self, images_1: torch.Tensor, images_2: torch.Tensor) -> torch.Tensor:
+        """TODO: Take code from https://github.com/facebookresearch/vicreg/blob/main/main_vicreg.py#L194
+        """
         raise NotImplementedError
+
+    def qq_step(self, images_1: torch.Tensor, images_2: torch.Tensor) -> torch.Tensor:
+        N = self.hparams.qq_num_predicates
+        n = self.hparams.qq_num_predicates_per_iter
+        indices = random.sample(range(N), n)
+        qq_weight = self.qq_head.weight[indices]
+        qq_bias = self.qq_head.bias[indices]
+
+        logits = F.linear(self(images_1), qq_weight, qq_bias)
+
+        with torch.no_grad():
+            targets = torch.sigmoid(F.linear(self(images_2), qq_weight, qq_bias) / self.hparams.qq_sharpen_temp)
+        bootstrap_loss = F.binary_cross_entropy_with_logits(logits, targets)
+        self.log(f'train/qq_bootstrap_loss', bootstrap_loss, on_epoch=True)
+
+        p = torch.sigmoid(logits)
+        p = torch.stack([1 - p, p], dim=-1)
+        first, second = torch.triu_indices(self.num_predicates_per_iter, self.num_predicates_per_iter)
+        batch_priors = torch.mean(p[:, first, :, None] * p[:, second, None], dim=0).flatten(-2)
+        historical_priors = self.pairwise_joint_priors[indices[first], indices[second]].to(batch_priors)
+        priors = (1 - self.gamma) * batch_priors + self.gamma * historical_priors
+        self.qq_priors[indices[first], indices[second]] = priors.data.cpu()  # update priors
+        reg = 2 * math.log(2) - entropy(priors, dim=-1).mean()
+        self.log(f'train/qq_reg', bootstrap_loss, on_epoch=True)
+
+        loss = bootstrap_loss + self.reg_weight * reg
+        self.log(f'train/qq_loss', loss, on_epoch=True)
+        self.manual_backward(loss)
 
     def training_step(self, batch: Tuple, batch_idx: int) -> torch.Tensor:
         (images, images_1, images_2), labels = batch
-        features, features_1, features_2 = self(images), self(images_1), self(images_2)
 
-        loss = self.compute_cls_loss(features, labels)
-        self.log('train/cls_loss', loss, on_epoch=True)
+        optimizer = self.optimizers()
+        optimizer.zero_grad()
 
+        self.cls_step(images, labels)
         if self.hparams.ae:
-            ae_loss, ae_logs = self.compute_ae_loss(features, images)
-            self.log_dict({f"train/{k}": v for k, v in ae_logs.items()}, on_step=True, on_epoch=True)
-            loss += ae_loss
-
+            self.ae_step(images)
         if self.hparams.vae:
-            vae_loss, vae_logs = self.compute_vae_loss(features, images)
-            self.log_dict({f"train/{k}": v for k, v in vae_logs.items()}, on_step=True, on_epoch=True)
-            loss += vae_loss
-
+            self.vae_step(images)
         if self.hparams.simclr:
-            simclr_loss = self.compute_simclr_loss(features_1, features_2)
-            self.log('train/simclr_loss', simclr_loss, on_epoch=True)
-            loss += simclr_loss
-
+            self.simclr_step(images_1, images_2)
         if self.hparams.vicreg:
-            vicreg_loss = self.compute_vicreg_loss(features_1, features_2)
-            self.log('train/vicreg_loss', vicreg_loss, on_epoch=True)
-            loss += vicreg_loss
+            self.vicreg_step(images_1, images_2)
+        if self.hparams.qq:
+            self.qq_step(images_1, images_2)
 
-        self.log('train/total_loss', loss, on_epoch=True)
-        return loss
+        # can help to stabilize the training
+        # torch.nn.utils.clip_grad_norm_(self.parameters(), 1.0)
+
+        optimizer.step()
 
     def validation_step(self, batch: Tuple, batch_idx: int) -> torch.Tensor:
         images, labels = batch
-        features = self(images)
+        vecs = self(images)
         acc = accuracy(
-            preds=self.cls_mlp(features),
+            preds=self.cls_mlp(vecs),
             target=labels,
             task='multiclass',
             num_classes=self.hparams.num_classes
         )
         self.log('val/accuracy', acc)
 
-        embeddings = {'common_features': features}
+        embeds = {'vecs': vecs}
         if self.hparams.ae:
-            embeddings['ae_embeddings'] = self.ae_mlp(features)
+            embeds['ae_embeddings'] = self.ae_mlp(vecs)
         if self.hparams.vae:
-            embeddings['vae_embeddings'] = self.vae_mlp(features)[:, :self.hparams.vae_latent_dim]
+            embeds['vae_embeddings'] = self.vae_mlp(vecs)[:, :self.hparams.vae_dim]
         if self.hparams.simclr:
-            embeddings['simclr_embeddings'] = F.normalize(self.simclr_mlp(features), dim=1)
+            embeds['simclr_embeddings'] = F.normalize(self.simclr_mlp(vecs), dim=1)
         if self.hparams.vicreg:
-            embeddings['vicreg_embeddings'] = self.vicreg_mlp(features)
-        return embeddings
+            embeds['vicreg_embeddings'] = self.vicreg_mlp(vecs)
+        return embeds
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
-
-
-class TrainDataTransform:
-    """Default augmentations described in https://arxiv.org/pdf/2002.05709.pdf.
-    Code is similar to pl_bolts.models.self_supervised.simclr.transforms.SimCLRTrainDataTransform.
-    """
-
-    def __init__(
-            self,
-            image_size: int,
-            gaussian_blur: bool = True,
-            jitter_strength: float = 1.0,
-            final_transforms: nn.Module = transforms.ToTensor()
-    ) -> None:
-        """Initialize transforms.
-
-        Args:
-            image_size (int, optional): input image size.
-            gaussian_blur (bool, optional): Whether to apply gaussian blur. Defaults to True.
-            jitter_strengh (float, optional): Strength of color distortion. Defaults to 1.0.
-            normalize (nn.Module, optional): normalization.
-        """
-        color_jitter = transforms.ColorJitter(
-            brightness=0.8 * jitter_strength,
-            contrast=0.8 * jitter_strength,
-            saturation=0.8 * jitter_strength,
-            hue=0.2 * jitter_strength
-        )
-
-        augmentations = [
-            transforms.RandomResizedCrop(size=image_size),
-            transforms.RandomHorizontalFlip(p=0.5),
-            transforms.RandomApply([color_jitter], p=0.8),
-            transforms.RandomGrayscale(p=0.2),
-        ]
-
-        if gaussian_blur:
-            kernel_size = int(0.1 * image_size)
-            if kernel_size % 2 == 0:
-                kernel_size += 1
-
-            augmentations.append(transforms.RandomApply([transforms.GaussianBlur(kernel_size)], p=0.5))
-
-        self.augmentations = transforms.Compose(augmentations)
-        self.final_transforms = final_transforms
-
-    def __call__(self, images):
-        images_1 = self.final_transforms(self.augmentations(images))
-        images_2 = self.final_transforms(self.augmentations(images))
-        images = self.final_transforms(images)
-        return images, images_1, images_2
 
 
 class LogEmbeddings(pl.Callback):
