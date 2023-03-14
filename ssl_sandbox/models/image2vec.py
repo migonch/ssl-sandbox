@@ -162,10 +162,10 @@ class Image2Vec(pl.LightningModule):
         bootstrap_loss = F.binary_cross_entropy_with_logits(logits, targets)
         self.log(f'train/qq_bootstrap_loss', bootstrap_loss, on_epoch=True)
 
-        p = torch.sigmoid(logits)
-        p = torch.stack([1 - p, p], dim=-1)
-        first, second = torch.triu_indices(self.num_predicates_per_iter, self.num_predicates_per_iter)
-        batch_priors = torch.mean(p[:, first, :, None] * p[:, second, None], dim=0).flatten(-2)
+        p = torch.sigmoid(logits)  # (b, n)
+        p = torch.stack([1 - p, p], dim=-1)  # (b, n, 2)
+        first, second = torch.triu_indices(n, n)
+        batch_priors = torch.mean(p[:, first, :, None] * p[:, second, None], dim=0).flatten(-2)  # (b, n(n-1)/2, 4)
         historical_priors = self.pairwise_joint_priors[indices[first], indices[second]].to(batch_priors)
         priors = (1 - self.gamma) * batch_priors + self.gamma * historical_priors
         self.qq_priors[indices[first], indices[second]] = priors.data.cpu()  # update priors
