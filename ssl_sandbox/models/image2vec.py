@@ -37,6 +37,7 @@ class Image2Vec(pl.LightningModule):
             i_weight: float = 25.0,
             v_weight: float = 25.0,
             qq_num_predicates: int = 8192,
+            qq_num_predicates_per_iter: int = 1024,
             qq_sharpen_temp: float = 0.25,
             qq_gamma: float = 0.99,
             qq_reg_weight: float = 1e2,
@@ -85,7 +86,7 @@ class Image2Vec(pl.LightningModule):
         if ssl_method == 'qq':
             self.qq_head = MLP(vec_dim, qq_num_predicates, qq_num_predicates)
             self.qq_teacher = deepcopy(nn.Sequential(self.encoder, self.qq_head))
-            self.qq_priors = torch.full((qq_num_predicates * (qq_num_predicates - 1) // 2, 4), 0.25)
+            self.qq_priors = torch.full((qq_num_predicates, qq_num_predicates, 4), 0.25)  # only upper triangular is used
 
         self.automatic_optimization = False
 
@@ -168,26 +169,30 @@ class Image2Vec(pl.LightningModule):
         self.manual_backward(vic_reg, retain_graph=True)
 
     def qq_step(self, images_1: torch.Tensor, images_2: torch.Tensor) -> torch.Tensor:
-        logits = self.qq_head(self(images_1))
+        N = self.hparams.qq_num_predicates
+        n = self.hparams.qq_num_predicates_per_iter
+        indices = torch.tensor(random.sample(range(N), n))
+
+        logits = self.qq_head(self(images_1))[:, indices]
 
         with torch.no_grad():
-            targets = torch.sigmoid(self.qq_head(self(images_2)) / self.hparams.qq_sharpen_temp)
+            targets = torch.sigmoid(self.qq_head(self(images_2))[:, indices] / self.hparams.qq_sharpen_temp)
         bootstrap_loss = F.binary_cross_entropy_with_logits(logits, targets)
         self.log(f'train/qq_bootstrap_loss', bootstrap_loss, on_epoch=True)
 
         p = torch.sigmoid(logits)  # (b, n)
         p = torch.stack([1 - p, p], dim=-1)  # (b, n, 2)
-        first, second = torch.triu_indices(p.shape[1], p.shape[1])
+        first, second = torch.triu_indices(n, n)
         priors = torch.mean(p[:, first, :, None] * p[:, second, None], dim=0).flatten(-2)  # (n(n-1)/2, 4)
-
         gamma = self.hparams.qq_gamma
-        priors = (1 - gamma) * priors + gamma * self.qq_priors.to(priors)
-        self.qq_priors = priors.data.cpu()  # update priors
+        historical_priors = self.qq_priors[indices[first], indices[second]].to(priors)
+        priors = (1 - gamma) * priors + gamma * historical_priors
+        self.qq_priors[indices[first], indices[second]] = priors.data.cpu()  # update historical priors
 
         reg = 2 * math.log(2) - entropy(priors, dim=-1).mean()
         self.log(f'train/qq_reg', reg, on_epoch=True)
 
-        loss = bootstrap_loss + self.reg_weight * reg
+        loss = bootstrap_loss + self.hparams.qq_reg_weight * reg
         self.log(f'train/qq_loss', loss, on_epoch=True)
         self.manual_backward(loss, retain_graph=True)
 
