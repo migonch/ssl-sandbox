@@ -1,21 +1,18 @@
 from argparse import ArgumentParser
 
-from torchvision import transforms
-
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import LearningRateMonitor
 
-from pl_bolts.datamodules import CIFAR10DataModule, MNISTDataModule
-from pl_bolts.transforms.dataset_normalizations import cifar10_normalization
+from pl_bolts.datamodules import CIFAR10DataModule
 
-from ssl_sandbox.models.image2vec import Image2Vec, TrainDataTransform, LogEmbeddings
+from ssl_sandbox.models.image2vec import Image2Vec, LogEmbeddings
+from ssl_sandbox.transforms import SimCLRViews, BYOLViews
 
 
 def parse_args():
     parser = ArgumentParser()
     parser.add_argument('--dataset')
-    parser.add_argument('--mnist_dir')
     parser.add_argument('--cifar10_dir')
     parser.add_argument('--logs_dir')
 
@@ -25,6 +22,8 @@ def parse_args():
     parser.add_argument('--vae', default=False, action='store_true')
     parser.add_argument('--vae_latent_dim', type=int, default=128)
     parser.add_argument('--simclr', default=False, action='store_true')
+    parser.add_argument('--vicreg', default=False, action='store_true')
+    parser.add_argument('--qq', default=False, action='store_true')
 
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--lr', type=float, default=3e-4)
@@ -36,27 +35,7 @@ def parse_args():
 
 
 def main(args):
-    if args.dataset == 'mnist':
-        dm = MNISTDataModule(
-            data_dir=args.mnist_dir,
-            num_workers=args.num_workers,
-            normalize=True,
-            batch_size=args.batch_size,
-            val_split=1000
-        )
-        mnist_transforms = transforms.Compose([
-            dm.default_transforms(),
-            transforms.Resize(size=(32, 32)),
-            transforms.Lambda(lambda x: x.repeat(3, 1, 1)),
-        ])
-        dm.train_transforms = TrainDataTransform(
-            image_size=28,
-            gaussian_blur=False,
-            jitter_strength=0.5,
-            final_transforms=mnist_transforms
-        )
-        dm.val_transforms = dm.test_transforms = mnist_transforms
-    elif args.dataset == 'cifar10':
+    if args.dataset == 'cifar10':
         dm = CIFAR10DataModule(
             data_dir=args.cifar10_dir,
             num_workers=args.num_workers,
@@ -64,17 +43,20 @@ def main(args):
             batch_size=args.batch_size,
             val_split=1000,
         )
-        dm.train_transforms = TrainDataTransform(
-            image_size=32,
-            gaussian_blur=False,
-            jitter_strength=0.5,
-            final_transforms=dm.default_transforms()
-        )
+        image_size = 32
+        params = dict(first_conv=False, maxpool1=False)
     else:
         raise ValueError(f'--dataset {args.dataset} is not supported')
-
+    
+    if args.simclr:
+        simclr_views = SimCLRViews(size=image_size, blur=False, jitter_strength=0.5, final_transforms=dm.default_transforms())
+        dm.train_transforms = simclr_views.train_transforms
+    elif args.vicreg:
+        byol_views = BYOLViews(size=32, final_transforms=dm.default_transforms())
+        dm.train_transforms = byol_views.train_transforms
+    
     model = Image2Vec(
-        image_size=32,
+        image_size=image_size,
         num_classes=dm.num_classes,
         supervised=args.supervised,
         ae=args.ae,
@@ -82,6 +64,9 @@ def main(args):
         vae=args.vae,
         vae_dim=args.vae_latent_dim,
         simclr=args.simclr,
+        vicreg=args.vicreg,
+        qq=args.qq,
+        **params,
         lr=args.lr
     )
     trainer = pl.Trainer(
