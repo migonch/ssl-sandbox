@@ -5,6 +5,7 @@ import torch
 import torchvision.transforms as T
 
 
+SIMCLR_COLOR_JITTER_PARAMS = dict(brightness=0.8, contrast=0.8, saturation=0.8, hue=0.2)
 BYOL_COLOR_JITTER_PARAMS = dict(brightness=0.4, contrast=0.4, saturation=0.2, hue=0.1)
 
 
@@ -56,16 +57,26 @@ class RandomView:
 class SimCLRViews:
     """Set ``blur=False`` for CIFAR10 dataset (according to https://arxiv.org/abs/2002.05709).
     """
-    def __init__(self, size: int, blur: bool = True, final_transforms: Optional[Callable] = None) -> None:
+    def __init__(
+        self, size: int, final_transforms: Callable,
+        jitter_strength: float = 1.0, blur: bool = True
+    ) -> None:
         blur_p = 0.5 if blur else 0.0
-        self.random_view = RandomView(size, blur_p=blur_p, final_transforms=final_transforms)
+        self.random_view = RandomView(
+            size, **{k: v * jitter_strength for k, v in SIMCLR_COLOR_JITTER_PARAMS.items()},
+            blur_p=blur_p, final_transforms=final_transforms,
+        )
+        self.final_transforms = final_transforms
 
-    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> torch.Tensor:
+    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Tuple[torch.Tensor]:
         return self.random_view(image), self.random_view(image)
+    
+    def train_transforms(self, image: Union[Image.Image, torch.Tensor]) -> Tuple[torch.Tensor]:
+        return self.final_transforms(image), *self(image)
 
 
 class BYOLViews:
-    def __init__(self, size: int, final_transforms: Optional[Callable] = None) -> None:
+    def __init__(self, size: int, final_transforms: Callable) -> None:
         self.online_view = RandomView(
             size, **BYOL_COLOR_JITTER_PARAMS, blur_p=1.0,
             final_transforms=final_transforms
@@ -74,10 +85,14 @@ class BYOLViews:
             size, **BYOL_COLOR_JITTER_PARAMS, blur_p=0.1, solarization_p=0.2,
             final_transforms=final_transforms
         )
+        self.final_transforms = final_transforms
 
-    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> torch.Tensor:
+    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Tuple[torch.Tensor]:
         return self.online_view(image), self.target_view(image)
 
+    def train_transforms(self, image: Union[Image.Image, torch.Tensor]) -> Tuple[torch.Tensor]:
+        return self.final_transforms(image), *self(image)
+    
 
 class MultiCrop:
     """Originally proposed in SwAV (https://arxiv.org/abs/2006.09882).

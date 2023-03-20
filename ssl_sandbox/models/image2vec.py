@@ -15,7 +15,7 @@ from pl_bolts.models.autoencoders.components import (
     resnet18_encoder, resnet18_decoder, resnet50_encoder, resnet50_decoder
 )
 
-from ssl_sandbox.functional import entropy
+from ssl_sandbox.functional import entropy, off_diagonal
 from .blocks import MLP
 
 
@@ -35,6 +35,8 @@ class Image2Vec(pl.LightningModule):
             simclr_temp: float = 0.1,
             vicreg: bool = False,
             vicreg_dim: int = 8192,
+            i_weight: float = 25.0,
+            v_weight: float = 25.0,
             qq: bool = False,
             qq_num_predicates: int = 8192,
             qq_num_predicates_per_iter: int = 1024,
@@ -84,7 +86,7 @@ class Image2Vec(pl.LightningModule):
             self.simclr_mlp = MLP(vec_dim, vec_dim, simclr_dim)
 
         if vicreg:
-            self.vicreg_mlp = MLP(vec_dim, vec_dim, vicreg_dim)
+            self.vicreg_mlp = MLP(vec_dim, vicreg_dim, vicreg_dim)
         
         if qq:
             self.qq_head = nn.Linear(vec_dim, qq_num_predicates)
@@ -108,7 +110,7 @@ class Image2Vec(pl.LightningModule):
     def ae_step(self, images: torch.Tensor) -> torch.Tensor:
         loss = F.mse_loss(self.decoder(self.ae_mlp(self(images))), images)
         self.log('train/ae_loss', loss, on_epoch=True)
-        self.manual_backward(loss)
+        self.manual_backward(loss, retain_graph=True)
 
     def vae_step(self, images: torch.Tensor) -> torch.Tensor:
         mean, logvar = torch.split(self.vae_mlp(self(images)), self.hparams.vae_dim, dim=1)
@@ -121,7 +123,7 @@ class Image2Vec(pl.LightningModule):
 
         loss = recon_loss + self.hparams.vae_beta * kl
         self.log('train/vae_loss', loss, on_epoch=True)
-        self.manual_backward(loss)
+        self.manual_backward(loss, retain_graph=True)
 
     def simclr_step(self, images_1: torch.Tensor, images_2: torch.Tensor) -> torch.Tensor:
         embeds_1 = F.normalize(self.simclr_mlp(self(images_1)), dim=1)  # (batch_size, simclr_dim)
@@ -141,12 +143,33 @@ class Image2Vec(pl.LightningModule):
         loss_2 = torch.mean(-pos_logits + torch.logsumexp(torch.cat([logits_12.T, logits_22], dim=1), dim=1))
         loss = (loss_1 + loss_2) / 2
         self.log(f'train/simclr_loss', loss, on_epoch=True)
-        self.manual_backward(loss)
+        self.manual_backward(loss, retain_graph=True)
 
     def vicreg_step(self, images_1: torch.Tensor, images_2: torch.Tensor) -> torch.Tensor:
-        """TODO: Take code from https://github.com/facebookresearch/vicreg/blob/main/main_vicreg.py#L194
-        """
-        raise NotImplementedError
+        embeds_1 = self.vicreg_mlp(self(images_1))
+        embeds_2 = self.vicreg_mlp(self(images_2))
+        
+        i_reg = F.mse_loss(embeds_1, embeds_2)
+        self.log(f'train/i_reg', i_reg, on_epoch=True)
+        
+        embeds_1 = embeds_1 - embeds_1.mean(dim=0)
+        embeds_2 = embeds_2 - embeds_2.mean(dim=0)
+        
+        eps = 1e-4
+        v_reg_1 = torch.mean(F.relu(1 - torch.sqrt(embeds_1.var(dim=0) + eps)))
+        v_reg_2 = torch.mean(F.relu(1 - torch.sqrt(embeds_2.var(dim=0) + eps)))
+        v_reg = (v_reg_1 + v_reg_2) / 2
+        self.log(f'train/v_reg', v_reg, on_epoch=True)
+        
+        n, d = embeds_1.shape
+        c_reg_1 = off_diagonal(embeds_1.T @ embeds_1).div(n - 1).pow_(2).sum().div(d)
+        c_reg_2 = off_diagonal(embeds_2.T @ embeds_2).div(n - 1).pow_(2).sum().div(d)
+        c_reg = (c_reg_1 + c_reg_2) / 2
+        self.log(f'train/c_reg', c_reg, on_epoch=True)
+        
+        vic_reg = self.hparams.i_weight * i_reg + self.hparams.v_weight * v_reg + c_reg
+        self.log(f'train/vic_reg', vic_reg, on_epoch=True)
+        self.manual_backward(vic_reg, retain_graph=True)
 
     def qq_step(self, images_1: torch.Tensor, images_2: torch.Tensor) -> torch.Tensor:
         N = self.hparams.qq_num_predicates
@@ -170,11 +193,11 @@ class Image2Vec(pl.LightningModule):
         priors = (1 - self.gamma) * batch_priors + self.gamma * historical_priors
         self.qq_priors[indices[first], indices[second]] = priors.data.cpu()  # update priors
         reg = 2 * math.log(2) - entropy(priors, dim=-1).mean()
-        self.log(f'train/qq_reg', bootstrap_loss, on_epoch=True)
+        self.log(f'train/qq_reg', reg, on_epoch=True)
 
         loss = bootstrap_loss + self.reg_weight * reg
         self.log(f'train/qq_loss', loss, on_epoch=True)
-        self.manual_backward(loss)
+        self.manual_backward(loss, retain_graph=True)
 
     def training_step(self, batch: Tuple, batch_idx: int) -> torch.Tensor:
         (images, images_1, images_2), labels = batch
@@ -182,7 +205,6 @@ class Image2Vec(pl.LightningModule):
         optimizer = self.optimizers()
         optimizer.zero_grad()
 
-        self.cls_step(images, labels)
         if self.hparams.ae:
             self.ae_step(images)
         if self.hparams.vae:
@@ -193,6 +215,7 @@ class Image2Vec(pl.LightningModule):
             self.vicreg_step(images_1, images_2)
         if self.hparams.qq:
             self.qq_step(images_1, images_2)
+        self.cls_step(images, labels)
 
         # can help to stabilize the training
         # torch.nn.utils.clip_grad_norm_(self.parameters(), 1.0)
@@ -203,7 +226,7 @@ class Image2Vec(pl.LightningModule):
         images, labels = batch
         vecs = self(images)
         acc = accuracy(
-            preds=self.cls_mlp(vecs),
+            preds=self.cls_head(vecs),
             target=labels,
             task='multiclass',
             num_classes=self.hparams.num_classes
