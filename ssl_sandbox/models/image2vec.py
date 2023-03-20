@@ -37,7 +37,6 @@ class Image2Vec(pl.LightningModule):
             vicreg_dim: int = 8192,
             qq: bool = False,
             qq_num_predicates: int = 8192,
-            qq_num_predicates_per_iter: int = 1024,
             qq_sharpen_temp: float = 0.25,
             qq_reg_weight: float = 1e2,
             architecture: Literal['resnet18', 'resnet50'] = 'resnet18',
@@ -85,9 +84,9 @@ class Image2Vec(pl.LightningModule):
 
         if vicreg:
             self.vicreg_mlp = MLP(vec_dim, vec_dim, vicreg_dim)
-        
+
         if qq:
-            self.qq_head = nn.Linear(vec_dim, qq_num_predicates)
+            self.qq_head = MLP(vec_dim, qq_num_predicates, qq_num_predicates)
             self.qq_priors = torch.full((qq_num_predicates, qq_num_predicates, 4), 1 / 4)  # only upper triangle is used
 
         self.automatic_optimization = False
@@ -174,7 +173,7 @@ class Image2Vec(pl.LightningModule):
 
         loss = bootstrap_loss + self.reg_weight * reg
         self.log(f'train/qq_loss', loss, on_epoch=True)
-        self.manual_backward(loss)
+        self.manual_backward(loss, retain_graph=True)
 
     def training_step(self, batch: Tuple, batch_idx: int) -> torch.Tensor:
         (images, images_1, images_2), labels = batch
