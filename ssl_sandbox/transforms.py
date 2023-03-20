@@ -50,7 +50,7 @@ class RandomView:
         self.augmentations = augmentations
         self.final_transforms = final_transforms
 
-    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> torch.Tensor:
+    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
         return self.final_transforms(self.augmentations(image))
 
 
@@ -58,25 +58,28 @@ class SimCLRViews:
     """Set ``blur=False`` for CIFAR10 dataset (according to https://arxiv.org/abs/2002.05709).
     """
     def __init__(
-        self, size: int, final_transforms: Callable,
-        jitter_strength: float = 1.0, blur: bool = True
+        self, size: int, jitter_strength: float = 1.0, blur: bool = True,
+        final_transforms: Optional[Callable] = None,
     ) -> None:
         blur_p = 0.5 if blur else 0.0
+        if final_transforms is None:
+            final_transforms = T.ToTensor()
+
         self.random_view = RandomView(
             size, **{k: v * jitter_strength for k, v in SIMCLR_COLOR_JITTER_PARAMS.items()},
             blur_p=blur_p, final_transforms=final_transforms,
         )
         self.final_transforms = final_transforms
 
-    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Tuple[torch.Tensor]:
-        return self.random_view(image), self.random_view(image)
-    
-    def train_transforms(self, image: Union[Image.Image, torch.Tensor]) -> Tuple[torch.Tensor]:
-        return self.final_transforms(image), *self(image)
+    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
+        return self.final_transforms(image), self.random_view(image), self.random_view(image)
 
 
 class BYOLViews:
-    def __init__(self, size: int, final_transforms: Callable) -> None:
+    def __init__(self, size: int, final_transforms: Optional[Callable] = None) -> None:
+        if final_transforms is None:
+            final_transforms = T.ToTensor()
+
         self.online_view = RandomView(
             size, **BYOL_COLOR_JITTER_PARAMS, blur_p=1.0,
             final_transforms=final_transforms
@@ -87,12 +90,9 @@ class BYOLViews:
         )
         self.final_transforms = final_transforms
 
-    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Tuple[torch.Tensor]:
-        return self.online_view(image), self.target_view(image)
+    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
+        return self.final_transforms(image), self.online_view(image), self.target_view(image)
 
-    def train_transforms(self, image: Union[Image.Image, torch.Tensor]) -> Tuple[torch.Tensor]:
-        return self.final_transforms(image), *self(image)
-    
 
 class MultiCrop:
     """Originally proposed in SwAV (https://arxiv.org/abs/2006.09882).
@@ -126,7 +126,7 @@ class MultiCrop:
         )
         self.local_views_number = local_views_number
 
-    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Sequence[torch.Tensor]:
+    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
         views = []
         views.append(self.random_global_view(image))
         views.append(self.random_global_view(image))

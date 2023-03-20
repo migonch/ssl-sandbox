@@ -6,24 +6,17 @@ from pytorch_lightning.callbacks import LearningRateMonitor
 
 from pl_bolts.datamodules import CIFAR10DataModule
 
-from ssl_sandbox.models.image2vec import Image2Vec, LogEmbeddings
+from ssl_sandbox.models.image2vec import Image2Vec, LogEmbeddings, QQTeacherUpdate
 from ssl_sandbox.transforms import SimCLRViews, BYOLViews
 
 
 def parse_args():
     parser = ArgumentParser()
-    parser.add_argument('--dataset')
     parser.add_argument('--cifar10_dir')
     parser.add_argument('--logs_dir')
 
     parser.add_argument('--supervised', default=False, action='store_true')
-    parser.add_argument('--ae', default=False, action='store_true')
-    parser.add_argument('--ae_latent_dim', type=int, default=128)
-    parser.add_argument('--vae', default=False, action='store_true')
-    parser.add_argument('--vae_latent_dim', type=int, default=128)
-    parser.add_argument('--simclr', default=False, action='store_true')
-    parser.add_argument('--vicreg', default=False, action='store_true')
-    parser.add_argument('--qq', default=False, action='store_true')
+    parser.add_argument('--ssl_method', required=True)
 
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--lr', type=float, default=3e-4)
@@ -35,43 +28,38 @@ def parse_args():
 
 
 def main(args):
-    if args.dataset == 'cifar10':
-        dm = CIFAR10DataModule(
-            data_dir=args.cifar10_dir,
-            num_workers=args.num_workers,
-            normalize=True,
-            batch_size=args.batch_size,
-            val_split=1000,
-        )
-        image_size = 32
-        params = dict(first_conv=False, maxpool1=False)
-    else:
-        raise ValueError(f'--dataset {args.dataset} is not supported')
-    
-    if args.simclr:
-        simclr_views = SimCLRViews(size=image_size, blur=False, jitter_strength=0.5, final_transforms=dm.default_transforms())
-        dm.train_transforms = simclr_views.train_transforms
-    elif args.vicreg:
-        byol_views = BYOLViews(size=32, final_transforms=dm.default_transforms())
-        dm.train_transforms = byol_views.train_transforms
-    
+    dm = CIFAR10DataModule(
+        data_dir=args.cifar10_dir,
+        num_workers=args.num_workers,
+        normalize=True,
+        batch_size=args.batch_size,
+        val_split=1000,
+    )
+    image_size = 32
+    blur = False
+    jitter_strength = 0.5
+    architecture_params = dict(first_conv=False, maxpool1=False)
+
+    assert args.ssl_method in ['ae', 'vae', 'simclr', 'vicreg', 'qq', 'none']
+    if args.ssl_method in ['simclr', 'vicreg']:
+        dm.train_transforms = SimCLRViews(image_size, jitter_strength, blur, final_transforms=dm.default_transforms())
+    elif args.ssl_method == 'qq':
+        dm.train_transforms = BYOLViews(image_size, final_transforms=dm.default_transforms())
+
     model = Image2Vec(
         image_size=image_size,
         num_classes=dm.num_classes,
         supervised=args.supervised,
-        ae=args.ae,
-        ae_dim=args.ae_latent_dim,
-        vae=args.vae,
-        vae_dim=args.vae_latent_dim,
-        simclr=args.simclr,
-        vicreg=args.vicreg,
-        qq=args.qq,
-        **params,
+        ssl_method=args.ssl_method,
+        **architecture_params,
         lr=args.lr
     )
+    callbacks = [LearningRateMonitor(), LogEmbeddings()]
+    if args.ssl_method == 'qq':
+        callbacks.append(QQTeacherUpdate())
     trainer = pl.Trainer(
         logger=TensorBoardLogger(save_dir=args.logs_dir, name=''),
-        callbacks=[LearningRateMonitor(), LogEmbeddings()],
+        callbacks=callbacks,
         accelerator='gpu',
         max_epochs=args.num_epochs,
         resume_from_checkpoint=args.checkpoint
@@ -80,5 +68,4 @@ def main(args):
 
 
 if __name__ == '__main__':
-    args = parse_args()
-    main(args)
+    main(parse_args())
