@@ -24,7 +24,7 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=1e-2)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--warmup_epochs', type=int, default=100)
-    parser.add_argument('--num_epochs', type=int, default=300)
+    parser.add_argument('--num_epochs', type=int, default=1000)
 
     parser.add_argument('--checkpoint')
 
@@ -48,7 +48,8 @@ def main(args):
     if args.ssl_method in ['simclr', 'vicreg']:
         dm.train_transforms = SimCLRViews(image_size, jitter_strength, blur, final_transforms=dm.default_transforms())
     elif args.ssl_method == 'qq':
-        dm.train_transforms = BYOLViews(image_size, final_transforms=dm.default_transforms())
+        dm.train_transforms = SimCLRViews(image_size, jitter_strength, blur, final_transforms=dm.default_transforms())
+        # dm.train_transforms = BYOLViews(image_size, final_transforms=dm.default_transforms())
 
     model = Image2Vec(
         image_size=image_size,
@@ -62,8 +63,8 @@ def main(args):
         warmup_epochs=args.warmup_epochs
     )
     callbacks = [LearningRateMonitor(), LogEmbeddings()]
-    if args.ssl_method == 'qq':
-        callbacks.append(QQTeacherUpdate())
+    # if args.ssl_method == 'qq':
+    #     callbacks.append(QQTeacherUpdate())
     trainer = pl.Trainer(
         logger=TensorBoardLogger(save_dir=args.logs_dir, name=''),
         callbacks=callbacks,

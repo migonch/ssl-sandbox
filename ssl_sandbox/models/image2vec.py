@@ -85,7 +85,7 @@ class Image2Vec(pl.LightningModule):
             self.vicreg_head = MLP(vec_dim, vicreg_dim, vicreg_dim)
         if ssl_method == 'qq':
             self.qq_head = MLP(vec_dim, qq_num_predicates, qq_num_predicates)
-            self.qq_teacher = deepcopy(nn.Sequential(self.encoder, self.qq_head))
+            # self.qq_teacher = deepcopy(nn.Sequential(self.encoder, self.qq_head))
 
         self.automatic_optimization = False
 
@@ -167,18 +167,24 @@ class Image2Vec(pl.LightningModule):
 
         self.manual_backward(vic_reg, retain_graph=True)
 
-    def qq_step(self, images_1: torch.Tensor, images_2: torch.Tensor) -> torch.Tensor:
-        logits = self.qq_head(self(images_1))
-
-        with torch.no_grad():
-            targets = torch.sigmoid(self.qq_teacher(images_2) / self.hparams.qq_sharpen_temp)
-        bootstrap_loss = F.binary_cross_entropy_with_logits(logits, targets)
-        self.log(f'train/qq_bootstrap_loss', bootstrap_loss, on_epoch=True)
-
-        p = torch.sigmoid(logits)  # (b, n)
+    @staticmethod
+    def qq_reg(logits):
+        p = torch.sigmoid(logits)
         p = torch.stack([1 - p, p])  # (2, b, n)
         priors = p.transpose(-2, -1) @ p.unsqueeze(1) / p.shape[1]  # (2, 2, n, n)
-        reg = 2 * math.log(2) - off_diagonal(entropy(priors, dim=(0, 1))).mean()
+        return 2 * math.log(2) - off_diagonal(entropy(priors, dim=(0, 1))).mean()
+
+    def qq_step(self, images_1: torch.Tensor, images_2: torch.Tensor) -> torch.Tensor:
+        logits_1 = self.qq_head(self(images_1))
+        logits_2 = self.qq_head(self(images_2))
+
+        temp = self.hparams.qq_sharpen_temp
+        bootstrap_loss_1 = F.binary_cross_entropy_with_logits(logits_1, torch.sigmoid(logits_2.detach() / temp))
+        bootstrap_loss_2 = F.binary_cross_entropy_with_logits(logits_2, torch.sigmoid(logits_1.detach() / temp))
+        bootstrap_loss = (bootstrap_loss_1 + bootstrap_loss_2) / 2
+        self.log(f'train/qq_bootstrap_loss', bootstrap_loss, on_epoch=True)
+
+        reg = (self.qq_reg(logits_1) + self.qq_reg(logits_2)) / 2
         self.log(f'train/qq_reg', reg, on_epoch=True)
 
         loss = bootstrap_loss + self.hparams.qq_reg_weight * reg
@@ -207,6 +213,10 @@ class Image2Vec(pl.LightningModule):
         # torch.nn.utils.clip_grad_norm_(self.parameters(), 1.0)
 
         optimizer.step()
+
+        if self.trainer.is_last_batch:
+            scheduler = self.lr_schedulers()
+            scheduler.step()
 
     def validation_step(self, batch: Tuple, batch_idx: int) -> torch.Tensor:
         images, labels = batch
