@@ -1,6 +1,5 @@
 from typing import *
 import json
-import random
 import math
 from copy import deepcopy
 
@@ -15,6 +14,7 @@ from pytorch_lightning.loggers import TensorBoardLogger
 from pl_bolts.models.autoencoders.components import (
     resnet18_encoder, resnet18_decoder, resnet50_encoder, resnet50_decoder
 )
+from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from ssl_sandbox.functional import entropy, off_diagonal
 from .blocks import MLP
@@ -33,18 +33,18 @@ class Image2Vec(pl.LightningModule):
             simclr_dim: int = 128,
             simclr_temp: float = 0.1,
             simclr_decoupled: bool = False,
-            vicreg_dim: int = 8192,
+            vicreg_dim: int = 2048,
             i_weight: float = 25.0,
             v_weight: float = 25.0,
-            qq_num_predicates: int = 8192,
-            qq_num_predicates_per_iter: int = 1024,
+            qq_num_predicates: int = 2048,
             qq_sharpen_temp: float = 0.25,
-            qq_gamma: float = 0.99,
-            qq_reg_weight: float = 1e2,
+            qq_reg_weight: float = 1.0,
             architecture: Literal['resnet18', 'resnet50'] = 'resnet50',
             first_conv: bool = True,
             maxpool1: bool = True,
-            lr: float = 3e-4,
+            lr: float = 1e-2,
+            weight_decay: float = 1e-4,
+            warmup_epochs: int = 100
     ) -> None:
         assert ssl_method in ['ae', 'vae', 'simclr', 'vicreg', 'qq', 'none']
         assert supervised or ssl_method != 'none'
@@ -86,7 +86,6 @@ class Image2Vec(pl.LightningModule):
         if ssl_method == 'qq':
             self.qq_head = MLP(vec_dim, qq_num_predicates, qq_num_predicates)
             self.qq_teacher = deepcopy(nn.Sequential(self.encoder, self.qq_head))
-            self.qq_priors = torch.full((qq_num_predicates, qq_num_predicates, 4), 0.25)  # only upper triangular is used
 
         self.automatic_optimization = False
 
@@ -169,27 +168,17 @@ class Image2Vec(pl.LightningModule):
         self.manual_backward(vic_reg, retain_graph=True)
 
     def qq_step(self, images_1: torch.Tensor, images_2: torch.Tensor) -> torch.Tensor:
-        N = self.hparams.qq_num_predicates
-        n = self.hparams.qq_num_predicates_per_iter
-        indices = torch.tensor(random.sample(range(N), n))
-
-        logits = self.qq_head(self(images_1))[:, indices]
+        logits = self.qq_head(self(images_1))
 
         with torch.no_grad():
-            targets = torch.sigmoid(self.qq_head(self(images_2))[:, indices] / self.hparams.qq_sharpen_temp)
+            targets = torch.sigmoid(self.qq_teacher(images_2) / self.hparams.qq_sharpen_temp)
         bootstrap_loss = F.binary_cross_entropy_with_logits(logits, targets)
         self.log(f'train/qq_bootstrap_loss', bootstrap_loss, on_epoch=True)
 
         p = torch.sigmoid(logits)  # (b, n)
-        p = torch.stack([1 - p, p], dim=-1)  # (b, n, 2)
-        first, second = torch.triu_indices(n, n)
-        priors = torch.mean(p[:, first, :, None] * p[:, second, None], dim=0).flatten(-2)  # (n(n-1)/2, 4)
-        gamma = self.hparams.qq_gamma
-        historical_priors = self.qq_priors[indices[first], indices[second]].to(priors)
-        priors = (1 - gamma) * priors + gamma * historical_priors
-        self.qq_priors[indices[first], indices[second]] = priors.data.cpu()  # update historical priors
-
-        reg = 2 * math.log(2) - entropy(priors, dim=-1).mean()
+        p = torch.stack([1 - p, p])  # (2, b, n)
+        priors = p.transpose(-2, -1) @ p.unsqueeze(1) / p.shape[1]  # (2, 2, n, n)
+        reg = 2 * math.log(2) - off_diagonal(entropy(priors, dim=(0, 1))).mean()
         self.log(f'train/qq_reg', reg, on_epoch=True)
 
         loss = bootstrap_loss + self.hparams.qq_reg_weight * reg
@@ -244,7 +233,12 @@ class Image2Vec(pl.LightningModule):
         return embeds
 
     def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.hparams.lr, weight_decay=self.hparams.weight_decay)
+        assert self.trainer.max_epochs != -1
+        scheduler = LinearWarmupCosineAnnealingLR(
+            optimizer, warmup_epochs=self.hparams.warmup_epochs, max_epochs=self.trainer.max_epochs
+        )
+        return [optimizer], [scheduler]
 
 
 class QQTeacherUpdate(pl.Callback):

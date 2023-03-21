@@ -16,12 +16,16 @@ def parse_args():
     parser.add_argument('--logs_dir')
 
     parser.add_argument('--supervised', default=False, action='store_true')
-    parser.add_argument('--ssl_method', required=True)
+    parser.add_argument('--ssl_method', default='qq')
+    parser.add_argument('--qq_reg_weight', type=float, default=1.0)
 
     parser.add_argument('--batch_size', type=int, default=256)
-    parser.add_argument('--lr', type=float, default=3e-4)
-    parser.add_argument('--num_epochs', type=int, default=150)
     parser.add_argument('--num_workers', type=int, default=0)
+    parser.add_argument('--lr', type=float, default=1e-2)
+    parser.add_argument('--weight_decay', type=float, default=1e-4)
+    parser.add_argument('--warmup_epochs', type=int, default=100)
+    parser.add_argument('--num_epochs', type=int, default=300)
+
     parser.add_argument('--checkpoint')
 
     return parser.parse_args()
@@ -51,8 +55,11 @@ def main(args):
         num_classes=dm.num_classes,
         supervised=args.supervised,
         ssl_method=args.ssl_method,
+        qq_reg_weight=args.qq_reg_weight,
         **architecture_params,
-        lr=args.lr
+        lr=args.lr,
+        weight_decay=args.weight_decay,
+        warmup_epochs=args.warmup_epochs
     )
     callbacks = [LearningRateMonitor(), LogEmbeddings()]
     if args.ssl_method == 'qq':
