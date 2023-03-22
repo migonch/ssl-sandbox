@@ -169,9 +169,9 @@ class Image2Vec(pl.LightningModule):
 
     @staticmethod
     def qq_reg(logits):
-        p = torch.sigmoid(logits)
-        p = torch.stack([1 - p, p])  # (2, b, n)
-        priors = p.transpose(-2, -1) @ p.unsqueeze(1) / p.shape[1]  # (2, 2, n, n)
+        p = torch.sigmoid(logits)  # (N, K)
+        p = torch.stack([1 - p, p])  # (2, N, K)
+        priors = p.transpose(-2, -1) @ p.unsqueeze(1) / p.shape[1]  # (2, 2, K, K)
         return 2 * math.log(2) - off_diagonal(entropy(priors, dim=(0, 1))).mean()
 
     def qq_step(self, images_1: torch.Tensor, images_2: torch.Tensor) -> torch.Tensor:

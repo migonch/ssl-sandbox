@@ -17,7 +17,9 @@ def parse_args():
 
     parser.add_argument('--supervised', default=False, action='store_true')
     parser.add_argument('--ssl_method', default='qq')
+    parser.add_argument('--vicreg_dim', type=int, default=2048)
     parser.add_argument('--qq_reg_weight', type=float, default=1.0)
+    parser.add_argument('--qq_num_predicates', type=int, default=2048)
 
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--num_workers', type=int, default=0)
@@ -43,19 +45,16 @@ def main(args):
     blur = False
     jitter_strength = 0.5
     architecture_params = dict(first_conv=False, maxpool1=False)
+    dm.train_transforms = SimCLRViews(image_size, jitter_strength, blur, final_transforms=dm.default_transforms())
 
     assert args.ssl_method in ['ae', 'vae', 'simclr', 'vicreg', 'qq', 'none']
-    if args.ssl_method in ['simclr', 'vicreg']:
-        dm.train_transforms = SimCLRViews(image_size, jitter_strength, blur, final_transforms=dm.default_transforms())
-    elif args.ssl_method == 'qq':
-        dm.train_transforms = SimCLRViews(image_size, jitter_strength, blur, final_transforms=dm.default_transforms())
-        # dm.train_transforms = BYOLViews(image_size, final_transforms=dm.default_transforms())
-
     model = Image2Vec(
         image_size=image_size,
         num_classes=dm.num_classes,
         supervised=args.supervised,
         ssl_method=args.ssl_method,
+        vicreg_dim=args.vicreg_dim,
+        qq_num_predicates=args.qq_num_predicates,
         qq_reg_weight=args.qq_reg_weight,
         **architecture_params,
         lr=args.lr,
