@@ -10,7 +10,7 @@ BYOL_COLOR_JITTER_PARAMS = dict(brightness=0.4, contrast=0.4, saturation=0.2, hu
 
 
 class RandomView:
-    """Standard augmentations reused in most of SSL methods.
+    """Standard augmentations reused in the most of SSL methods.
     The default parameters are the same as in SimCLR (https://arxiv.org/abs/2002.05709).
     """
     def __init__(
@@ -58,8 +58,12 @@ class SimCLRViews:
     """Set ``blur=False`` for CIFAR10 dataset (according to https://arxiv.org/abs/2002.05709).
     """
     def __init__(
-        self, size: int, jitter_strength: float = 1.0, blur: bool = True,
-        final_transforms: Optional[Callable] = None,
+            self,
+            size: int,
+            jitter_strength: float = 1.0,
+            blur: bool = True,
+            final_transforms: Optional[Callable] = None,
+            views_number: int = 2
     ) -> None:
         blur_p = 0.5 if blur else 0.0
         if final_transforms is None:
@@ -70,13 +74,21 @@ class SimCLRViews:
             blur_p=blur_p, final_transforms=final_transforms,
         )
         self.final_transforms = final_transforms
+        self.views_number = views_number
 
     def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
-        return self.final_transforms(image), self.random_view(image), self.random_view(image)
+        return (
+            self.final_transforms(image),
+            *[self.random_view(image) for _ in range(self.views_number)]
+        )
 
 
 class BYOLViews:
-    def __init__(self, size: int, final_transforms: Optional[Callable] = None) -> None:
+    def __init__(
+            self,
+            size: int,
+            final_transforms: Optional[Callable] = None
+    ) -> None:
         if final_transforms is None:
             final_transforms = T.ToTensor()
 
@@ -91,7 +103,11 @@ class BYOLViews:
         self.final_transforms = final_transforms
 
     def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
-        return self.final_transforms(image), self.online_view(image), self.target_view(image)
+        return (
+            self.final_transforms(image),
+            self.online_view(image),
+            self.target_view(image)
+        )
 
 
 class MultiCrop:
@@ -127,9 +143,8 @@ class MultiCrop:
         self.local_views_number = local_views_number
 
     def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
-        views = []
-        views.append(self.random_global_view(image))
-        views.append(self.random_global_view(image))
-        for _ in range(self.local_views_number):
-            views.append(self.random_local_view(image))
-        return views
+        return (
+            self.random_global_view(image),
+            self.random_global_view(image),
+            *[self.random_local_view(image) for _ in range(self.local_views_number)]
+        )
