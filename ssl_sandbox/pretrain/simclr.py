@@ -6,7 +6,6 @@ import pytorch_lightning as pl
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from ssl_sandbox.nn.blocks import MLP
-from ssl_sandbox.nn.functional import eval_mode
 
 
 class SimCLR(pl.LightningModule):

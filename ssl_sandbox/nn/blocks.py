@@ -13,11 +13,18 @@ class MLP(nn.Module):
             bias: bool = True
     ) -> None:
         super().__init__()
+        
+        assert num_hidden_layers >= 1
 
-        hidden_layers = []
-        for _ in range(num_hidden_layers):
+        hidden_layers = [
+            nn.Linear(input_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(dropout_rate)
+        ]
+        for _ in range(num_hidden_layers - 1):
             hidden_layers.extend([
-                nn.Linear(input_dim, hidden_dim),
+                nn.Linear(hidden_dim, hidden_dim),
                 nn.BatchNorm1d(hidden_dim),
                 nn.ReLU(),
                 nn.Dropout(dropout_rate)
