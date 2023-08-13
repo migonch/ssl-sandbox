@@ -27,5 +27,5 @@ class CIFAR4vs6DataModule(CIFAR10DataModule):
             self.dataset_train = Subset(
                 dataset=self.dataset_train.dataset,
                 indices=[i for i in self.dataset_train.indices
-                         if self.dataset_train.dataset.targets[i] != -1]
+                         if self.dataset_train.dataset.targets[i] in CIFAR4vs6DataModule.id_classes]
             )

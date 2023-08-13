@@ -9,7 +9,9 @@ from pl_bolts.datamodules import CIFAR10DataModule
 
 import timm
 
-from ssl_sandbox.pretrain import SimCLR, VICReg, VICRegOODDetection
+from ssl_sandbox.pretrain import (
+    SimCLR, BarlowTwins, BarlowTwinsOODDetection, VICReg, VICRegOODDetection
+)
 from ssl_sandbox.eval import OnlineProbing
 from ssl_sandbox.datamodules import CIFAR4vs6DataModule
 from ssl_sandbox.pretrain.transforms import SimCLRViews
@@ -27,9 +29,12 @@ def parse_args():
     parser.add_argument('--drop_rate', type=float, default=0.0)
     parser.add_argument('--drop_path_rate', type=float, default=0.0)
     parser.add_argument('--drop_block_rate', type=float, default=0.0)
+    
+    parser.add_argument('--barlow_twins_unbiased', default=False, action='store_true')
 
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--num_workers', type=int, default=8)
+
     parser.add_argument('--lr', type=float, default=1e-2)
     parser.add_argument('--weight_decay', type=float, default=1e-6)
     parser.add_argument('--warmup_epochs', type=int, default=10)
@@ -48,30 +53,31 @@ def adapt_to_cifar10(resnet: timm.models.ResNet):
 
 
 def main(args):
-    if args.dataset == 'cifar10':
-        dm = CIFAR10DataModule(
-            data_dir=args.cifar10_dir,
-            val_split=1000,
-            num_workers=args.num_workers,
-            normalize=True,
-            batch_size=args.batch_size
-        )
-        image_size = 32
-        blur = False
-        jitter_strength = 0.5
-    elif args.dataset == 'cifar4vs6':
-        dm = CIFAR4vs6DataModule(
-            data_dir=args.cifar10_dir,
-            val_split=1000,
-            num_workers=args.num_workers,
-            normalize=True,
-            batch_size=args.batch_size,
-        )
-        image_size = 32
-        blur = False
-        jitter_strength = 0.5
-    else:
-        raise ValueError(args.dataset)
+    match args.dataset:
+        case 'cifar10':
+            dm = CIFAR10DataModule(
+                data_dir=args.cifar10_dir,
+                val_split=1000,
+                num_workers=args.num_workers,
+                normalize=True,
+                batch_size=args.batch_size
+            )
+            image_size = 32
+            blur = False
+            jitter_strength = 0.5
+        case 'cifar4vs6':
+            dm = CIFAR4vs6DataModule(
+                data_dir=args.cifar10_dir,
+                val_split=1000,
+                num_workers=args.num_workers,
+                normalize=True,
+                batch_size=args.batch_size,
+            )
+            image_size = 32
+            blur = False
+            jitter_strength = 0.5
+        case _:
+            raise ValueError(args.dataset)
     dm.train_transforms = SimCLRViews(
         size=image_size,
         jitter_strength=jitter_strength,
@@ -91,14 +97,15 @@ def main(args):
         drop_path_rate=args.drop_path_rate,
         drop_block_rate=args.drop_block_rate
     )
-    if args.encoder == 'resnet18':
-        embed_dim = 512
-        encoder = timm.models.resnet.resnet18(num_classes=embed_dim, **dropout_kwargs)
-    elif args.encoder == 'resnet50':
-        embed_dim = 2048
-        encoder = timm.models.resnet.resnet50(num_classes=embed_dim, **dropout_kwargs)
-    else:
-        raise ValueError(args.encoder)
+    match args.encoder:
+        case 'resnet18':
+            embed_dim = 512
+            encoder = timm.models.resnet.resnet18(num_classes=embed_dim, **dropout_kwargs)
+        case 'resnet50':
+            embed_dim = 2048
+            encoder = timm.models.resnet.resnet50(num_classes=embed_dim, **dropout_kwargs)
+        case _:
+            raise ValueError(args.encoder)
     if args.dataset in ['cifar10', 'cifar4vs6']:
         encoder = adapt_to_cifar10(encoder)
 
@@ -107,17 +114,22 @@ def main(args):
         weight_decay=args.weight_decay,
         warmup_epochs=args.warmup_epochs
     )
-    if args.method == 'simclr':
-        model = SimCLR(encoder, embed_dim, **optimizer_kwargs)
-    elif args.method == 'vicreg':
-        model = VICReg(encoder, embed_dim, **optimizer_kwargs)
-    else:
-        raise ValueError(args.method)
+    match args.method:
+        case 'simclr':
+            model = SimCLR(encoder, embed_dim, **optimizer_kwargs)
+        case 'barlow_twins':
+            model = BarlowTwins(encoder, embed_dim, unbiased=args.barlow_twins_unbiased, **optimizer_kwargs)
+        case 'vicreg':
+            model = VICReg(encoder, embed_dim, **optimizer_kwargs)
+        case _:
+            raise ValueError(args.method)
 
     callbacks = [
         OnlineProbing(embed_dim, dm.num_classes),
         LearningRateMonitor()
     ]
+    if args.method == 'barlow_twins':
+        callbacks.append(BarlowTwinsOODDetection())
     if args.method == 'vicreg':
         callbacks.append(VICRegOODDetection())
 
