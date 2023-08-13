@@ -120,9 +120,10 @@ def main(args):
         case 'simclr':
             model = SimCLR(encoder, embed_dim, **optimizer_kwargs)
         case 'barlow_twins':
-            model = BarlowTwins(encoder, embed_dim, unbiased=args.barlow_twins_unbiased, **optimizer_kwargs)
+            model = BarlowTwins(encoder, embed_dim, proj_dim=args.barlow_twins_proj_dim,
+                                unbiased=args.barlow_twins_unbiased, **optimizer_kwargs)
         case 'vicreg':
-            model = VICReg(encoder, embed_dim, **optimizer_kwargs)
+            model = VICReg(encoder, embed_dim, proj_dim=args.vicreg_proj_dim, **optimizer_kwargs)
         case _:
             raise ValueError(args.method)
 
