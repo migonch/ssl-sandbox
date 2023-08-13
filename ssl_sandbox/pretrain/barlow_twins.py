@@ -84,19 +84,22 @@ class BarlowTwins(pl.LightningModule):
 
 class BarlowTwinsOODDetection(pl.Callback):
     def on_validation_epoch_start(self, trainer, pl_module) -> None:
-        self.val_ood_auroc = AUROC('binary').to(pl_module.device)
-        self.val_ood_auroc_md = AUROC('binary').to(pl_module.device)
+        self.val_ood_auroc = AUROC('binary')
+        self.val_ood_auroc_md = AUROC('binary')
 
     def on_validation_batch_end(self, trainer, pl_module: BarlowTwins, outputs, batch, batch_idx, dataloader_idx=0):
         (images, *views), labels = batch
+        ood_labels = labels.cpu() == -1
 
         with eval_mode(pl_module.encoder, enable_dropout=True), eval_mode(pl_module.projector):
-            ood_scores = torch.cat([pl_module.projector(pl_module.encoder(v)) for v in views]).var(0).mean(-1)
-        self.val_ood_auroc.update(ood_scores, labels == -1)
+            embeds = torch.cat([pl_module.projector(pl_module.encoder(v)) for v in views]).detach().cpu()
+            ood_scores = embeds.var(0).mean(-1)
+        self.val_ood_auroc.update(ood_scores, ood_labels)
 
         with eval_mode(pl_module.encoder), eval_mode(pl_module.projector):
-            md_scores = pl_module.projector(pl_module.encoder(images)).pow_(2).sum(-1)
-        self.val_ood_auroc_md.update(md_scores, labels == -1)
+            embeds = pl_module.projector(pl_module.encoder(images)).detach().cpu()
+            md_scores = embeds.pow_(2).sum(-1)
+        self.val_ood_auroc_md.update(md_scores, ood_labels)
 
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
         self.log('val/ood_auroc', self.val_ood_auroc.compute())
