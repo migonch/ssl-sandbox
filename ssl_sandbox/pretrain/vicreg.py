@@ -91,7 +91,7 @@ class VICRegOODDetection(pl.Callback):
         ood_labels = labels.cpu() == -1
 
         with eval_mode(pl_module.encoder, enable_dropout=True), eval_mode(pl_module.projector):
-            embeds = torch.cat([pl_module.projector(pl_module.encoder(v)).detach().cpu() for v in views])
+            embeds = torch.stack([pl_module.projector(pl_module.encoder(v)).detach().cpu() for v in views])
             ood_scores = embeds.var(0).mean(-1)
         self.val_ood_auroc.update(ood_scores, ood_labels)
 

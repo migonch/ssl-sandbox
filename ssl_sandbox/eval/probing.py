@@ -83,10 +83,10 @@ class OnlineProbing(pl.Callback):
         super().__init__()
 
         self.linear_head = nn.Linear(embed_dim, num_classes)
-        self.nonlinear_head = MLP(embed_dim, embed_dim, num_classes)
+        self.linear_optimizer = torch.optim.Adam(self.linear_head.parameters(), lr=lr)
 
-        params = itertools.chain(self.linear_head.parameters(), self.nonlinear_head.parameters())
-        self.optimizer = torch.optim.Adam(params, lr=lr)
+        self.nonlinear_head = MLP(embed_dim, embed_dim, num_classes)
+        self.nonlinear_optimizer = torch.optim.Adam(self.nonlinear_head.parameters(), lr=lr)
 
         self.num_classes = num_classes
 
@@ -95,8 +95,6 @@ class OnlineProbing(pl.Callback):
         self.nonlinear_head.to(pl_module.device)
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
-        self.optimizer.zero_grad()
-
         (images, *_), labels = batch
 
         with torch.no_grad(), eval_mode(pl_module.encoder):
@@ -104,11 +102,13 @@ class OnlineProbing(pl.Callback):
 
         for prefix in ['linear', 'nonlinear']:
             head = getattr(self, f'{prefix}_head')
+            optimizer = getattr(self, f'{prefix}_optimizer')
+
+            optimizer.zero_grad()
             loss = F.cross_entropy(head(embeds), labels)
             self.log(f'train/{prefix}_probing_loss', loss, on_epoch=True)
             loss.backward()
-
-        self.optimizer.step()
+            optimizer.step()
 
     def on_validation_epoch_start(self, trainer, pl_module):
         self.val_lin_prob_acc = Accuracy('multiclass', num_classes=self.num_classes).to(pl_module.device)
