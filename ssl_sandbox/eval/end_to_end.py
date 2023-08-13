@@ -3,7 +3,7 @@ from typing import *
 import torch
 from torch import nn
 import torch.nn.functional as F
-from torchmetrics.functional import accuracy
+from torchmetrics import Accuracy
 
 import pytorch_lightning as pl
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
@@ -37,11 +37,17 @@ class EndToEnd(pl.LightningModule):
         self.log('train/loss', loss, on_epoch=True)
         return loss
 
+    def on_validation_epoch_start(self) -> None:
+        self.val_acc = Accuracy('multiclass', num_classes=self.num_classes).to(self.device)
+
     def validation_step(self, batch: Tuple, batch_idx: int) -> torch.Tensor:
         images, labels = batch
         images, labels = images[labels != -1], labels[labels != -1]  # filter out ood examples
-        acc = accuracy(self.head(self.encoder(images)), labels, 'multiclass', self.num_classes)
-        self.log('val/accuracy', acc)
+
+        self.val_acc.update(self.head(self.encoder(images)), labels)
+
+    def on_validation_epoch_end(self) -> None:
+        self.log(f'val/accuracy', self.val_lin_prob_acc.compute())
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)

@@ -53,8 +53,8 @@ class Probing(pl.LightningModule):
         optimizer.step()
 
     def on_validation_epoch_start(self) -> None:
-        self.val_lin_prob_acc = Accuracy('multiclass', num_classes=self.num_classes)
-        self.val_nonlin_prob_acc = Accuracy('multiclass', num_classes=self.num_classes)
+        self.val_lin_prob_acc = Accuracy('multiclass', num_classes=self.num_classes).to(self.device)
+        self.val_nonlin_prob_acc = Accuracy('multiclass', num_classes=self.num_classes).to(self.device)
 
     def validation_step(self, batch, batch_idx):
         images, labels = batch
@@ -111,8 +111,8 @@ class OnlineProbing(pl.Callback):
         self.optimizer.step()
 
     def on_validation_epoch_start(self, trainer, pl_module):
-        self.val_lin_prob_acc = Accuracy('multiclass', num_classes=self.num_classes)
-        self.val_nonlin_prob_acc = Accuracy('multiclass', num_classes=self.num_classes)
+        self.val_lin_prob_acc = Accuracy('multiclass', num_classes=self.num_classes).to(pl_module.device)
+        self.val_nonlin_prob_acc = Accuracy('multiclass', num_classes=self.num_classes).to(pl_module.device)
 
         self.val_embeds = []
 

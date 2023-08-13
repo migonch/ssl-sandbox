@@ -53,7 +53,7 @@ def adapt_to_cifar10(resnet: timm.models.ResNet):
 
 
 def main(args):
-    match args.dataset:
+    match args.dataset.lower():
         case 'cifar10':
             dm = CIFAR10DataModule(
                 data_dir=args.cifar10_dir,
@@ -134,7 +134,10 @@ def main(args):
         callbacks.append(VICRegOODDetection())
 
     trainer = pl.Trainer(
-        logger=TensorBoardLogger(save_dir=args.log_dir, name=''),
+        logger=TensorBoardLogger(
+            save_dir=args.log_dir,
+            name=f'pretrain/{args.dataset.lower()}/{args.method}'
+        ),
         callbacks=callbacks,
         accelerator='gpu',
         max_epochs=args.num_epochs,

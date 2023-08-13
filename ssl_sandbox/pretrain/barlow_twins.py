@@ -84,8 +84,8 @@ class BarlowTwins(pl.LightningModule):
 
 class BarlowTwinsOODDetection(pl.Callback):
     def on_validation_epoch_start(self, trainer, pl_module) -> None:
-        self.val_ood_auroc = AUROC('binary')
-        self.val_ood_auroc_md = AUROC('binary')
+        self.val_ood_auroc = AUROC('binary').to(pl_module.device)
+        self.val_ood_auroc_md = AUROC('binary').to(pl_module.device)
 
     def on_validation_batch_end(self, trainer, pl_module: BarlowTwins, outputs, batch, batch_idx, dataloader_idx=0):
         (images, *views), labels = batch
