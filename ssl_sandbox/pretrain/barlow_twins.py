@@ -1,4 +1,6 @@
 from typing import *
+from sklearn.metrics import roc_auc_score
+import numpy as np
 
 import torch
 from torch import nn
@@ -62,9 +64,12 @@ class BarlowTwins(pl.LightningModule):
             off_diag = torch.sum(off_diagonal(c_1) * off_diagonal(c_2)).div(d)
 
         loss = on_diag + self.lmbd * off_diag
+        
+        mse_loss = F.mse_loss(embeds_1, embeds_2)
 
         self.log(f'train/on_diag', on_diag, on_epoch=True)
         self.log(f'train/off_diag', off_diag, on_epoch=True)
+        self.log(f'train/mse_loss', mse_loss, on_epoch=True)
         self.log(f'train/loss', loss, on_epoch=True)
 
         return loss
@@ -86,6 +91,10 @@ class BarlowTwinsOODDetection(pl.Callback):
         self.val_ood_auroc = AUROC('binary')
         self.val_ood_auroc_md = AUROC('binary')
 
+        self.ood_labels = []
+        self.ood_scores = []
+        self.md_scores = []
+
     def on_validation_batch_end(self, trainer, pl_module: BarlowTwins, outputs, batch, batch_idx, dataloader_idx=0):
         (images, *views), labels = batch
         ood_labels = labels.cpu() == -1
@@ -99,7 +108,19 @@ class BarlowTwinsOODDetection(pl.Callback):
             embeds = pl_module.projector(pl_module.encoder(images)).detach().cpu()
             md_scores = embeds.pow_(2).sum(-1)
         self.val_ood_auroc_md.update(md_scores, ood_labels)
+        
+        self.ood_labels.extend(ood_labels.tolist())
+        self.ood_scores.extend(ood_scores.tolist())
+        self.md_scores.extend(md_scores.tolist())
 
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
         self.log('val/ood_auroc', self.val_ood_auroc.compute())
         self.log('val/ood_auroc_md', self.val_ood_auroc_md.compute())
+
+        self.log('val/ood_auroc_sklearn', roc_auc_score(self.ood_labels, self.ood_scores))
+        self.log('val/ood_auroc_md_sklearn', roc_auc_score(self.ood_labels, self.md_scores))
+
+        ood_scores = np.array(self.ood_scores)
+        ood_labels = np.array(self.ood_labels)
+        self.log('val/mean_ood_score_for_ood_data', ood_scores[ood_labels].mean())
+        self.log('val/mean_ood_score_for_id_data', ood_scores[~ood_labels].mean())

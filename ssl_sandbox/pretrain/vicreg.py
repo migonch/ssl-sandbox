@@ -1,5 +1,6 @@
 from typing import *
-import warnings
+import numpy as np
+from sklearn.metrics import roc_auc_score
 
 import torch
 from torch import nn
@@ -86,6 +87,9 @@ class VICRegOODDetection(pl.Callback):
     def on_validation_epoch_start(self, trainer, pl_module) -> None:
         self.val_ood_auroc = AUROC('binary')
 
+        self.ood_labels = []
+        self.ood_scores = []
+
     def on_validation_batch_end(self, trainer, pl_module: VICReg, outputs, batch, batch_idx, dataloader_idx=0):
         (_, *views), labels = batch
         ood_labels = labels.cpu() == -1
@@ -95,5 +99,15 @@ class VICRegOODDetection(pl.Callback):
             ood_scores = embeds.var(0).mean(-1)
         self.val_ood_auroc.update(ood_scores, ood_labels)
 
+        self.ood_labels.extend(ood_labels.tolist())
+        self.ood_scores.extend(ood_scores.tolist())
+
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
         self.log('val/ood_auroc', self.val_ood_auroc.compute())
+
+        self.log('val/ood_auroc_sklearn', roc_auc_score(self.ood_labels, self.ood_scores))
+
+        ood_scores = np.array(self.ood_scores)
+        ood_labels = np.array(self.ood_labels)
+        self.log('val/mean_ood_score_for_ood_data', ood_scores[ood_labels].mean())
+        self.log('val/mean_ood_score_for_id_data', ood_scores[~ood_labels].mean())
