@@ -33,6 +33,7 @@ def parse_args():
     parser.add_argument('--barlow_twins_unbiased', default=False, action='store_true')
     parser.add_argument('--barlow_twins_proj_dim', type=int, default=8192)
     parser.add_argument('--vicreg_proj_dim', type=int, default=8192)
+    parser.add_argument('--vicreg_i_weight', type=float, default=25.0)
 
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--num_workers', type=int, default=8)
@@ -124,7 +125,8 @@ def main(args):
             model = BarlowTwins(encoder, embed_dim, proj_dim=args.barlow_twins_proj_dim,
                                 unbiased=args.barlow_twins_unbiased, **optimizer_kwargs)
         case 'vicreg':
-            model = VICReg(encoder, embed_dim, proj_dim=args.vicreg_proj_dim, **optimizer_kwargs)
+            model = VICReg(encoder, embed_dim, proj_dim=args.vicreg_proj_dim,
+                           i_weight=args.vicreg_i_weight, **optimizer_kwargs)
         case _:
             raise ValueError(args.method)
 
