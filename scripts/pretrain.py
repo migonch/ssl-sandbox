@@ -20,7 +20,7 @@ from ssl_sandbox.pretrain.transforms import SimCLRViews
  
 def parse_args():
     parser = ArgumentParser()
-    
+
     parser.add_argument('--dataset', required=True)
     parser.add_argument('--cifar10_dir', required=True)
     parser.add_argument('--log_dir', required=True)
@@ -30,7 +30,7 @@ def parse_args():
     parser.add_argument('--drop_rate', type=float, default=0.0)
     parser.add_argument('--drop_path_rate', type=float, default=0.0)
     parser.add_argument('--drop_block_rate', type=float, default=0.0)
-    
+
     parser.add_argument('--barlow_twins_unbiased', default=False, action='store_true')
     parser.add_argument('--barlow_twins_proj_dim', type=int, default=8192)
     parser.add_argument('--vicreg_proj_dim', type=int, default=8192)

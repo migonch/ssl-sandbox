@@ -66,7 +66,7 @@ class Sensemble(pl.LightningModule):
             bootstrap_loss /= 2
 
             probas_2 = torch.softmax(logits_2, dim=-1)
-            memax_reg -= entropy(probas_2, dim=-1)
+            memax_reg -= entropy(probas_2.mean(dim=0), dim=-1)
             memax_reg /= 2
 
         loss = bootstrap_loss + self.memax_reg_weight * memax_reg
