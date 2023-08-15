@@ -32,7 +32,7 @@ class Sensemble(pl.LightningModule):
             num_prototypes: int = 2048,
             temp: float = 0.1,
             sharpen_temp: float = 0.25,
-            memax_reg_weight: float = 5.0,
+            memax_reg_weight: float = 1.0,
             symmetric: bool = False,
     ):
         super().__init__()
@@ -54,19 +54,19 @@ class Sensemble(pl.LightningModule):
         logits_1 = self.projector(self.encoder(views_1)) / self.temp  # (batch_size, num_prototypes)
         logits_2 = self.projector(self.encoder(views_2)) / self.temp  # (batch_size, num_prototypes)
 
-        target_1 = torch.softmax(logits_2.detach() / self.sharpen_temp, dim=1)
+        target_1 = torch.softmax(logits_2.detach() / self.sharpen_temp, dim=-1)
         bootstrap_loss = F.cross_entropy(logits_1, target_1)
 
-        probas_1 = torch.softmax(logits_1, dim=1)
-        memax_reg = entropy(probas_1.mean(dim=0), dim=0)
+        probas_1 = torch.softmax(logits_1, dim=-1)
+        memax_reg = -entropy(probas_1.mean(dim=0), dim=-1)
 
         if self.symmetric:
-            target_2 = torch.softmax(logits_1.detach() / self.sharpen_temp, dim=1)
+            target_2 = torch.softmax(logits_1.detach() / self.sharpen_temp, dim=-1)
             bootstrap_loss += F.cross_entropy(logits_2, target_2)
             bootstrap_loss /= 2
 
-            probas_2 = torch.softmax(logits_2, dim=1)
-            memax_reg += entropy(probas_2, dim=1)
+            probas_2 = torch.softmax(logits_2, dim=-1)
+            memax_reg -= entropy(probas_2, dim=-1)
             memax_reg /= 2
 
         loss = bootstrap_loss + self.memax_reg_weight * memax_reg
@@ -101,7 +101,7 @@ class ValidateOODDetection(pl.Callback):
     def on_validation_batch_end(self, trainer, pl_module: Sensemble, outputs, batch, batch_idx, dataloader_idx=0):
         (images, *views), labels = batch
         ood_labels = labels.cpu() == -1
-        
+
         ood_scores = {}
         with eval_mode(pl_module.encoder):
             ood_scores['entropy'] = entropy(pl_module(images).cpu(), dim=-1)
