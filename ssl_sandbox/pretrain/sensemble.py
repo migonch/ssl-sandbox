@@ -34,6 +34,9 @@ class Sensemble(pl.LightningModule):
             sharpen_temp: float = 0.25,
             memax_reg_weight: float = 1.0,
             symmetric: bool = False,
+            lr: float = 1e-2,
+            weight_decay: float = 1e-6,
+            warmup_epochs: int = 100
     ):
         super().__init__()
 
@@ -44,6 +47,9 @@ class Sensemble(pl.LightningModule):
         self.sharpen_temp = sharpen_temp
         self.memax_reg_weight = memax_reg_weight
         self.symmetric = symmetric
+        self.lr = lr
+        self.weight_decay = weight_decay
+        self.warmup_epochs = warmup_epochs
     
     def forward(self, images):
         return torch.softmax(self.projector(self.encoder(images)) / self.temp)

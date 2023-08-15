@@ -151,7 +151,8 @@ def main(args):
                 embed_dim,
                 num_prototypes=args.sensemble_num_prototypes,
                 memax_reg_weight=args.sensemble_memax_reg_weight,
-                symmetric=args.sensemble_symmetric
+                symmetric=args.sensemble_symmetric,
+                **optimizer_kwargs
             )
         case _:
             raise ValueError(args.method)
