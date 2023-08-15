@@ -10,7 +10,8 @@ from pl_bolts.datamodules import CIFAR10DataModule
 import timm
 
 from ssl_sandbox.pretrain import (
-    SimCLR, BarlowTwins, BarlowTwinsOODDetection, VICReg, VICRegOODDetection
+    SimCLR, BarlowTwins, BarlowTwinsOODDetection, VICReg, VICRegOODDetection,
+    Sensemble, ValidateOODDetection
 )
 from ssl_sandbox.eval import OnlineProbing
 from ssl_sandbox.datamodules import CIFAR4vs6DataModule
@@ -34,6 +35,9 @@ def parse_args():
     parser.add_argument('--barlow_twins_proj_dim', type=int, default=8192)
     parser.add_argument('--vicreg_proj_dim', type=int, default=8192)
     parser.add_argument('--vicreg_i_weight', type=float, default=25.0)
+    parser.add_argument('--sensemble_num_prototypes', type=int, default=2048)
+    parser.add_argument('--sensemble_memax_reg_weight', type=float, default=1.0)
+    parser.add_argument('--sensemble_symmetric', default=False, action='store_true')
 
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--num_workers', type=int, default=8)
@@ -120,13 +124,35 @@ def main(args):
     )
     match args.method:
         case 'simclr':
-            model = SimCLR(encoder, embed_dim, **optimizer_kwargs)
+            model = SimCLR(
+                encoder,
+                embed_dim,
+                **optimizer_kwargs
+            )
         case 'barlow_twins':
-            model = BarlowTwins(encoder, embed_dim, proj_dim=args.barlow_twins_proj_dim,
-                                unbiased=args.barlow_twins_unbiased, **optimizer_kwargs)
+            model = BarlowTwins(
+                encoder,
+                embed_dim,
+                proj_dim=args.barlow_twins_proj_dim,
+                unbiased=args.barlow_twins_unbiased,
+                **optimizer_kwargs
+            )
         case 'vicreg':
-            model = VICReg(encoder, embed_dim, proj_dim=args.vicreg_proj_dim,
-                           i_weight=args.vicreg_i_weight, **optimizer_kwargs)
+            model = VICReg(
+                encoder,
+                embed_dim,
+                proj_dim=args.vicreg_proj_dim,
+                i_weight=args.vicreg_i_weight,
+                **optimizer_kwargs
+            )
+        case 'sensemble':
+            model = Sensemble(
+                encoder,
+                embed_dim,
+                num_prototypes=args.sensemble_num_prototypes,
+                memax_reg_weight=args.sensemble_memax_reg_weight,
+                symmetric=args.sensemble_symmetric
+            )
         case _:
             raise ValueError(args.method)
 
@@ -138,6 +164,8 @@ def main(args):
         callbacks.append(BarlowTwinsOODDetection())
     if args.method == 'vicreg':
         callbacks.append(VICRegOODDetection())
+    if args.method == 'sensemble':
+        callbacks.append(ValidateOODDetection())
 
     trainer = pl.Trainer(
         logger=TensorBoardLogger(
