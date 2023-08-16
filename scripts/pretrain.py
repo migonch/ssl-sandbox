@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument('--vicreg_proj_dim', type=int, default=8192)
     parser.add_argument('--vicreg_i_weight', type=float, default=25.0)
     parser.add_argument('--sensemble_num_prototypes', type=int, default=1024)
-    parser.add_argument('--sensemble_memax_reg_weight', type=float, default=25.0)
+    parser.add_argument('--sensemble_initial_memax_weight', type=float, default=25.0)
     parser.add_argument('--sensemble_ema', default=False, action='store_true')
 
     parser.add_argument('--batch_size', type=int, default=256)
@@ -154,7 +154,7 @@ def main(args):
                 encoder,
                 embed_dim,
                 num_prototypes=args.sensemble_num_prototypes,
-                memax_reg_weight=args.sensemble_memax_reg_weight,
+                initial_memax_weight=args.sensemble_initial_memax_weight,
                 ema=args.sensemble_ema,
                 **optimizer_kwargs
             )

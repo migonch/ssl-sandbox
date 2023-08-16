@@ -36,10 +36,10 @@ class Sensemble(pl.LightningModule):
             encoder: nn.Module,
             embed_dim: int,
             prototype_dim: int = 256,
-            num_prototypes: int = 2048,
+            num_prototypes: int = 1024,
             temp: float = 0.1,
             teacher_temp: float = 0.025,
-            memax_reg_weight: float = 1.0,
+            initial_memax_weight: float = 25.0,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
             warmup_epochs: int = 10,
@@ -57,7 +57,7 @@ class Sensemble(pl.LightningModule):
         self.num_prototypes = num_prototypes
         self.temp = temp
         self.teacher_temp = teacher_temp
-        self.memax_reg_weight = memax_reg_weight
+        self.initial_memax_weight = self.memax_weight = initial_memax_weight
         self.lr = lr
         self.weight_decay = weight_decay
         self.warmup_epochs = warmup_epochs
@@ -89,13 +89,17 @@ class Sensemble(pl.LightningModule):
         return loss
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
+        max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
+
+        # update me-max regularization weight
+        self.memax_weight = 1 + (self.initial_memax_weight - 1) * (1 - self.global_step / max_steps)
+
         if self.ema:
             # update teacher params
             for p, teacher_p in zip(self.encoder.parameters(), self.teacher.parameters()):
                 teacher_p.data = self.tau * teacher_p.data + (1.0 - self.tau) * p.data
 
             # update tau
-            max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
             self.tau = 1 - (1 - self.initial_tau) * (1 - self.global_step / max_steps)
 
     def validation_step(self, batch, batch_idx):
@@ -130,7 +134,7 @@ class SensembleOODDetection(pl.Callback):
         with eval_mode(pl_module.encoder):
             ood_scores['entropy'] = entropy(pl_module(images).cpu(), dim=-1)
 
-        with eval_mode(pl_module.encoder, enable_dropout=True):
+        with eval_mode(pl_module.encoder, enable_dropout=True), eval_mode(pl_module.projector):
             ensemble_probas = torch.stack([pl_module(images).cpu() for _ in range(len(views))])
             (ood_scores['mean_entropy'],
              ood_scores['expected_entropy'],
