@@ -1,7 +1,5 @@
 import collections
 import math
-from typing import Any, Optional
-from pytorch_lightning.utilities.types import STEP_OUTPUT
 from sklearn.metrics import roc_auc_score
 
 import torch
@@ -10,6 +8,7 @@ import torch.nn.functional as F
 
 import pytorch_lightning as pl
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
+# from pl_bolts.models.self_supervised
 
 from ssl_sandbox.nn.functional import entropy, eval_mode
 
@@ -54,9 +53,9 @@ class Sensemble(pl.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.warmup_epochs = warmup_epochs
-    
+
     def forward(self, images):
-        return torch.softmax(self.projector(self.encoder(images)) / self.temp)
+        return torch.softmax(self.projector(self.encoder(images)) / self.temp, dim=-1)
 
     def training_step(self, batch, batch_idx):
         (_, views_1, views_2), _ = batch
