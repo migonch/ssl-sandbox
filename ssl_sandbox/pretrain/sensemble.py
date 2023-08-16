@@ -1,5 +1,6 @@
 import collections
 import math
+from pytorch_lightning.utilities.types import EPOCH_OUTPUT
 from sklearn.metrics import roc_auc_score
 from copy import deepcopy
 
@@ -89,18 +90,18 @@ class Sensemble(pl.LightningModule):
         return loss
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
-        max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
-
-        # update me-max regularization weight
-        self.memax_weight = 1 + (self.initial_memax_weight - 1) * (1 - self.global_step / max_steps)
-
         if self.ema:
             # update teacher params
             for p, teacher_p in zip(self.encoder.parameters(), self.teacher.parameters()):
                 teacher_p.data = self.tau * teacher_p.data + (1.0 - self.tau) * p.data
 
             # update tau
+            max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
             self.tau = 1 - (1 - self.initial_tau) * (1 - self.global_step / max_steps)
+    
+    def training_epoch_end(self, outputs):
+        # update me-max regularization weight
+        self.memax_weight *= 0.995
 
     def validation_step(self, batch, batch_idx):
         pass
