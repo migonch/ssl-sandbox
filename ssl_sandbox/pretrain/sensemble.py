@@ -78,12 +78,12 @@ class Sensemble(pl.LightningModule):
         bootstrap_loss = F.cross_entropy(logits, target)
 
         probas = torch.softmax(logits, dim=-1)
-        memax_reg = math.log(self.num_prototypes) - entropy(probas.mean(dim=0), dim=-1)
+        memax = math.log(self.num_prototypes) - entropy(probas.mean(dim=0), dim=-1)
 
-        loss = bootstrap_loss + self.memax_reg_weight * memax_reg
+        loss = bootstrap_loss + self.memax_weight * memax
 
         self.log(f'train/bootstrap_loss', bootstrap_loss, on_epoch=True)
-        self.log(f'train/memax_reg', memax_reg, on_epoch=True)
+        self.log(f'train/memax_reg', memax, on_epoch=True)
         self.log(f'train/loss', loss, on_epoch=True)
 
         return loss
