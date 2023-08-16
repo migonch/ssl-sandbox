@@ -43,7 +43,7 @@ def parse_args():
     parser.add_argument('--num_workers', type=int, default=8)
 
     parser.add_argument('--lr', type=float, default=1e-2)
-    parser.add_argument('--weight_decay', type=float, default=1e-6)
+    parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--warmup_epochs', type=int, default=100)
     parser.add_argument('--num_epochs', type=int, default=1000)
     parser.add_argument('--clip_grad', type=float)

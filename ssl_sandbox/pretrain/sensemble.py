@@ -67,7 +67,7 @@ class Sensemble(pl.LightningModule):
 
         logits = self.projector(self.encoder(views_1)) / self.temp  # (batch_size, num_prototypes)
 
-        with torch.no_grad(), eval_mode(self.teacher):
+        with torch.no_grad():
             target = torch.softmax(self.projector(self.teacher(views_2)) / self.teacher_temp, dim=-1)
 
         bootstrap_loss = F.cross_entropy(logits, target)
