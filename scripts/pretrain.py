@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument('--vicreg_proj_dim', type=int, default=8192)
     parser.add_argument('--vicreg_i_weight', type=float, default=25.0)
     parser.add_argument('--sensemble_num_prototypes', type=int, default=1024)
-    parser.add_argument('--sensemble_memax_reg_weight', type=float, default=5.0)
+    parser.add_argument('--sensemble_memax_reg_weight', type=float, default=25.0)
     parser.add_argument('--sensemble_ema', default=False, action='store_true')
 
     parser.add_argument('--batch_size', type=int, default=256)
@@ -45,7 +45,7 @@ def parse_args():
     parser.add_argument('--lr', type=float, default=1e-2)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--warmup_epochs', type=int, default=100)
-    parser.add_argument('--num_epochs', type=int, default=1000)
+    parser.add_argument('--num_epochs', type=int, default=3000)
     parser.add_argument('--clip_grad', type=float)
 
     return parser.parse_args()
