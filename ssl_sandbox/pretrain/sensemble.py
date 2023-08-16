@@ -1,6 +1,7 @@
 import collections
 import math
 from sklearn.metrics import roc_auc_score
+# from copy import deepcopy
 
 import torch
 from torch import nn
@@ -38,11 +39,13 @@ class Sensemble(pl.LightningModule):
             symmetric: bool = False,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
-            warmup_epochs: int = 100
+            warmup_epochs: int = 100,
+            # initial_tau: float = 0.996
     ):
         super().__init__()
 
         self.encoder = encoder
+        # self.teacher = deepcopy(encoder)
         self.projector = Projector(embed_dim, num_prototypes)
 
         self.num_prototypes = num_prototypes
@@ -53,6 +56,14 @@ class Sensemble(pl.LightningModule):
         self.lr = lr
         self.weight_decay = weight_decay
         self.warmup_epochs = warmup_epochs
+        # self.initial_tau = self.current_tau = initial_tau
+
+    # def on_train_batch_end(self, outputs, batch, batch_idx):
+    #     for online_p, target_p in zip(self.encoder.parameters(), self.teacher.parameters()):
+    #         target_p.data = self.current_tau * target_p.data + (1.0 - self.current_tau) * online_p.data
+
+    #     max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
+    #     self.current_tau = 1 - (1 - self.initial_tau) * (math.cos(math.pi * self.global_step / max_steps) + 1) / 2
 
     def forward(self, images):
         return torch.softmax(self.projector(self.encoder(images)) / self.temp, dim=-1)
@@ -134,5 +145,5 @@ class SensembleOODDetection(pl.Callback):
             self.ood_scores[k].extend(v.tolist())
 
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
-        for k, v in self.odd_scores.items():
+        for k, v in self.ood_scores:
             self.log(f'val/ood_auroc_{k}', roc_auc_score(self.ood_labels, v))
