@@ -10,17 +10,21 @@ import torch.nn.functional as F
 import pytorch_lightning as pl
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 
+from ssl_sandbox.nn.blocks import MLP
 from ssl_sandbox.nn.functional import entropy, eval_mode
 
 
 class Projector(nn.Module):
-    def __init__(self, embed_dim: int, num_prototypes: int):
+    def __init__(self, embed_dim: int, prototype_dim: int, num_prototypes: int):
         super().__init__()
+        
+        self.mlp = MLP(embed_dim, embed_dim, prototype_dim, num_hidden_layers=2)
 
-        self.prototypes = nn.Parameter(torch.zeros(num_prototypes, embed_dim))
-        nn.init.uniform_(self.prototypes, -(1. / embed_dim) ** 0.5, (1. / embed_dim) ** 0.5)
+        self.prototypes = nn.Parameter(torch.zeros(num_prototypes, prototype_dim))
+        nn.init.uniform_(self.prototypes, -(1. / prototype_dim) ** 0.5, (1. / prototype_dim) ** 0.5)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = self.mlp(x)
         x = F.normalize(x, dim=-1)
         prototypes = F.normalize(self.prototypes, dim=-1)
         return torch.matmul(x, prototypes.T)
@@ -31,6 +35,7 @@ class Sensemble(pl.LightningModule):
             self,
             encoder: nn.Module,
             embed_dim: int,
+            prototype_dim: int = 256,
             num_prototypes: int = 2048,
             temp: float = 0.1,
             teacher_temp: float = 0.025,
@@ -47,7 +52,7 @@ class Sensemble(pl.LightningModule):
 
         self.encoder = encoder
         self.teacher = deepcopy(encoder) if ema else encoder
-        self.projector = Projector(embed_dim, num_prototypes)
+        self.projector = Projector(embed_dim, prototype_dim, num_prototypes)
 
         self.num_prototypes = num_prototypes
         self.temp = temp
@@ -91,7 +96,7 @@ class Sensemble(pl.LightningModule):
 
             # update tau
             max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
-            self.tau = 1 - (1 - self.initial_tau) * (math.cos(math.pi * self.global_step / max_steps) + 1) / 2
+            self.tau = 1 - (1 - self.initial_tau) * (1 - self.global_step / max_steps)
 
     def validation_step(self, batch, batch_idx):
         pass

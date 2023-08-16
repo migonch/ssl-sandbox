@@ -35,8 +35,8 @@ def parse_args():
     parser.add_argument('--barlow_twins_proj_dim', type=int, default=8192)
     parser.add_argument('--vicreg_proj_dim', type=int, default=8192)
     parser.add_argument('--vicreg_i_weight', type=float, default=25.0)
-    parser.add_argument('--sensemble_num_prototypes', type=int, default=2048)
-    parser.add_argument('--sensemble_memax_reg_weight', type=float, default=1.0)
+    parser.add_argument('--sensemble_num_prototypes', type=int, default=1024)
+    parser.add_argument('--sensemble_memax_reg_weight', type=float, default=5.0)
     parser.add_argument('--sensemble_ema', default=False, action='store_true')
 
     parser.add_argument('--batch_size', type=int, default=256)
@@ -108,14 +108,18 @@ def main(args):
     match args.encoder:
         case 'resnet18':
             embed_dim = 512
-            encoder = timm.models.resnet.resnet18(num_classes=embed_dim, **dropout_kwargs)
+            encoder = timm.models.resnet.resnet18(**dropout_kwargs)
+            encoder.fc = nn.Identity()
+            if args.dataset in ['cifar10', 'cifar4vs6']:
+                encoder = adapt_to_cifar10(encoder)
         case 'resnet50':
             embed_dim = 2048
-            encoder = timm.models.resnet.resnet50(num_classes=embed_dim, **dropout_kwargs)
+            encoder = timm.models.resnet.resnet50(**dropout_kwargs)
+            encoder.fc = nn.Identity()
+            if args.dataset in ['cifar10', 'cifar4vs6']:
+                encoder = adapt_to_cifar10(encoder)
         case _:
             raise ValueError(args.encoder)
-    if args.dataset in ['cifar10', 'cifar4vs6']:
-        encoder = adapt_to_cifar10(encoder)
 
     optimizer_kwargs = dict(
         lr=args.lr,
