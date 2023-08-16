@@ -1,7 +1,7 @@
 import collections
 import math
 from sklearn.metrics import roc_auc_score
-# from copy import deepcopy
+from copy import deepcopy
 
 import torch
 from torch import nn
@@ -9,7 +9,6 @@ import torch.nn.functional as F
 
 import pytorch_lightning as pl
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
-# from pl_bolts.models.self_supervised
 
 from ssl_sandbox.nn.functional import entropy, eval_mode
 
@@ -34,36 +33,31 @@ class Sensemble(pl.LightningModule):
             embed_dim: int,
             num_prototypes: int = 2048,
             temp: float = 0.1,
-            sharpen_temp: float = 0.25,
+            teacher_temp: float = 0.025,
             memax_reg_weight: float = 1.0,
-            symmetric: bool = False,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
-            warmup_epochs: int = 100,
-            # initial_tau: float = 0.996
+            warmup_epochs: int = 10,
+            ema: bool = False,
+            initial_tau: float = 0.996
     ):
         super().__init__()
 
+        self.save_hyperparameters(ignore='encoder')
+
         self.encoder = encoder
-        # self.teacher = deepcopy(encoder)
+        self.teacher = deepcopy(encoder) if ema else encoder
         self.projector = Projector(embed_dim, num_prototypes)
 
         self.num_prototypes = num_prototypes
         self.temp = temp
-        self.sharpen_temp = sharpen_temp
+        self.teacher_temp = teacher_temp
         self.memax_reg_weight = memax_reg_weight
-        self.symmetric = symmetric
         self.lr = lr
         self.weight_decay = weight_decay
         self.warmup_epochs = warmup_epochs
-        # self.initial_tau = self.current_tau = initial_tau
-
-    # def on_train_batch_end(self, outputs, batch, batch_idx):
-    #     for online_p, target_p in zip(self.encoder.parameters(), self.teacher.parameters()):
-    #         target_p.data = self.current_tau * target_p.data + (1.0 - self.current_tau) * online_p.data
-
-    #     max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
-    #     self.current_tau = 1 - (1 - self.initial_tau) * (math.cos(math.pi * self.global_step / max_steps) + 1) / 2
+        self.ema = ema
+        self.initial_tau = self.tau = initial_tau
 
     def forward(self, images):
         return torch.softmax(self.projector(self.encoder(images)) / self.temp, dim=-1)
@@ -71,23 +65,15 @@ class Sensemble(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         (_, views_1, views_2), _ = batch
 
-        logits_1 = self.projector(self.encoder(views_1)) / self.temp  # (batch_size, num_prototypes)
-        logits_2 = self.projector(self.encoder(views_2)) / self.temp  # (batch_size, num_prototypes)
+        logits = self.projector(self.encoder(views_1)) / self.temp  # (batch_size, num_prototypes)
 
-        target_1 = torch.softmax(logits_2.detach() / self.sharpen_temp, dim=-1)
-        bootstrap_loss = F.cross_entropy(logits_1, target_1)
+        with torch.no_grad(), eval_mode(self.teacher):
+            target = torch.softmax(self.projector(self.teacher(views_2)) / self.teacher_temp, dim=-1)
 
-        probas_1 = torch.softmax(logits_1, dim=-1)
-        memax_reg = math.log(self.num_prototypes) - entropy(probas_1.mean(dim=0), dim=-1)
+        bootstrap_loss = F.cross_entropy(logits, target)
 
-        if self.symmetric:
-            target_2 = torch.softmax(logits_1.detach() / self.sharpen_temp, dim=-1)
-            bootstrap_loss += F.cross_entropy(logits_2, target_2)
-            bootstrap_loss /= 2
-
-            probas_2 = torch.softmax(logits_2, dim=-1)
-            memax_reg += math.log(self.num_prototypes) - entropy(probas_2.mean(dim=0), dim=-1)
-            memax_reg /= 2
+        probas = torch.softmax(logits, dim=-1)
+        memax_reg = math.log(self.num_prototypes) - entropy(probas.mean(dim=0), dim=-1)
 
         loss = bootstrap_loss + self.memax_reg_weight * memax_reg
 
@@ -96,6 +82,16 @@ class Sensemble(pl.LightningModule):
         self.log(f'train/loss', loss, on_epoch=True)
 
         return loss
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        if self.ema:
+            # update teacher params
+            for p, teacher_p in zip(self.encoder.parameters(), self.teacher.parameters()):
+                teacher_p.data = self.tau * teacher_p.data + (1.0 - self.tau) * p.data
+
+            # update tau
+            max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
+            self.tau = 1 - (1 - self.initial_tau) * (math.cos(math.pi * self.global_step / max_steps) + 1) / 2
 
     def validation_step(self, batch, batch_idx):
         pass
@@ -145,5 +141,5 @@ class SensembleOODDetection(pl.Callback):
             self.ood_scores[k].extend(v.tolist())
 
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
-        for k, v in self.ood_scores:
+        for k, v in self.ood_scores.items():
             self.log(f'val/ood_auroc_{k}', roc_auc_score(self.ood_labels, v))

@@ -37,14 +37,14 @@ def parse_args():
     parser.add_argument('--vicreg_i_weight', type=float, default=25.0)
     parser.add_argument('--sensemble_num_prototypes', type=int, default=2048)
     parser.add_argument('--sensemble_memax_reg_weight', type=float, default=1.0)
-    parser.add_argument('--sensemble_symmetric', default=False, action='store_true')
+    parser.add_argument('--sensemble_ema', default=False, action='store_true')
 
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--num_workers', type=int, default=8)
 
     parser.add_argument('--lr', type=float, default=1e-2)
-    parser.add_argument('--weight_decay', type=float, default=1e-4)
-    parser.add_argument('--warmup_epochs', type=int, default=100)
+    parser.add_argument('--weight_decay', type=float, default=1e-6)
+    parser.add_argument('--warmup_epochs', type=int, default=10)
     parser.add_argument('--num_epochs', type=int, default=1000)
     parser.add_argument('--clip_grad', type=float)
 
@@ -151,7 +151,7 @@ def main(args):
                 embed_dim,
                 num_prototypes=args.sensemble_num_prototypes,
                 memax_reg_weight=args.sensemble_memax_reg_weight,
-                symmetric=args.sensemble_symmetric,
+                ema=args.sensemble_ema,
                 **optimizer_kwargs
             )
         case _:

@@ -25,7 +25,7 @@ class SimCLR(pl.LightningModule):
         self.save_hyperparameters(ignore='encoder')
 
         self.encoder = encoder
-        self.projector = MLP(embed_dim, proj_dim, proj_dim, num_hidden_layers=2, bias=False)
+        self.projector = MLP(embed_dim, embed_dim, proj_dim, num_hidden_layers=2, bias=False)
 
         self.temp = temp
         self.decoupled = decoupled

@@ -24,7 +24,7 @@ class BarlowTwins(pl.LightningModule):
             unbiased: bool = False,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
-            warmup_epochs: int = 100
+            warmup_epochs: int = 10
     ):
         super().__init__()
 
