@@ -1,4 +1,5 @@
 import collections
+import math
 from sklearn.metrics import roc_auc_score
 
 import torch
@@ -43,6 +44,7 @@ class Sensemble(pl.LightningModule):
         self.encoder = encoder
         self.projector = Projector(embed_dim, num_prototypes)
 
+        self.num_prototypes = num_prototypes
         self.temp = temp
         self.sharpen_temp = sharpen_temp
         self.memax_reg_weight = memax_reg_weight
@@ -64,7 +66,7 @@ class Sensemble(pl.LightningModule):
         bootstrap_loss = F.cross_entropy(logits_1, target_1)
 
         probas_1 = torch.softmax(logits_1, dim=-1)
-        memax_reg = -entropy(probas_1.mean(dim=0), dim=-1)
+        memax_reg = math.log(self.num_prototypes) - entropy(probas_1.mean(dim=0), dim=-1)
 
         if self.symmetric:
             target_2 = torch.softmax(logits_1.detach() / self.sharpen_temp, dim=-1)
@@ -72,7 +74,7 @@ class Sensemble(pl.LightningModule):
             bootstrap_loss /= 2
 
             probas_2 = torch.softmax(logits_2, dim=-1)
-            memax_reg -= entropy(probas_2.mean(dim=0), dim=-1)
+            memax_reg += math.log(self.num_prototypes) - entropy(probas_2.mean(dim=0), dim=-1)
             memax_reg /= 2
 
         loss = bootstrap_loss + self.memax_reg_weight * memax_reg
@@ -93,13 +95,13 @@ class Sensemble(pl.LightningModule):
 
 
 def compute_ood_scores(ensemble_probas: torch.Tensor) -> torch.Tensor:
-    mean_entropies = entropy(probas.mean(dim=0), dim=-1)
-    expected_entropies = entropy(probas, dim=-1).mean(dim=0)
+    mean_entropies = entropy(ensemble_probas.mean(dim=0), dim=-1)
+    expected_entropies = entropy(ensemble_probas, dim=-1).mean(dim=0)
     bald_scores = mean_entropies - expected_entropies
     return mean_entropies, expected_entropies, bald_scores
 
 
-class ValidateOODDetection(pl.Callback):
+class SensembleOODDetection(pl.Callback):
     def on_validation_epoch_start(self, trainer, pl_module) -> None:
         self.ood_labels = []
         self.ood_scores = collections.defaultdict(list)

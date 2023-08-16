@@ -11,7 +11,7 @@ import timm
 
 from ssl_sandbox.pretrain import (
     SimCLR, BarlowTwins, BarlowTwinsOODDetection, VICReg, VICRegOODDetection,
-    Sensemble, ValidateOODDetection
+    Sensemble, SensembleOODDetection
 )
 from ssl_sandbox.eval import OnlineProbing
 from ssl_sandbox.datamodules import CIFAR4vs6DataModule
@@ -166,7 +166,7 @@ def main(args):
     if args.method == 'vicreg':
         callbacks.append(VICRegOODDetection())
     if args.method == 'sensemble':
-        callbacks.append(ValidateOODDetection())
+        callbacks.append(SensembleOODDetection())
 
     trainer = pl.Trainer(
         logger=TensorBoardLogger(
