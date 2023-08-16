@@ -46,7 +46,7 @@ class Sensemble(pl.LightningModule):
         self.save_hyperparameters(ignore='encoder')
 
         self.encoder = encoder
-        # self.teacher = encoder
+        self.teacher = deepcopy(encoder) if ema else encoder
         self.projector = Projector(embed_dim, num_prototypes)
 
         self.num_prototypes = num_prototypes
@@ -67,8 +67,8 @@ class Sensemble(pl.LightningModule):
 
         logits = self.projector(self.encoder(views_1)) / self.temp  # (batch_size, num_prototypes)
 
-        with torch.no_grad():
-            target = torch.softmax(self.projector(self.encoder(views_2)) / self.teacher_temp, dim=-1)
+        with torch.no_grad(), eval_mode(self.teacher):
+            target = torch.softmax(self.projector(self.teacher(views_2)) / self.teacher_temp, dim=-1)
 
         bootstrap_loss = F.cross_entropy(logits, target)
 
@@ -83,15 +83,15 @@ class Sensemble(pl.LightningModule):
 
         return loss
 
-    # def on_train_batch_end(self, outputs, batch, batch_idx):
-    #     if self.ema:
-    #         # update teacher params
-    #         for p, teacher_p in zip(self.encoder.parameters(), self.teacher.parameters()):
-    #             teacher_p.data = self.tau * teacher_p.data + (1.0 - self.tau) * p.data
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        if self.ema:
+            # update teacher params
+            for p, teacher_p in zip(self.encoder.parameters(), self.teacher.parameters()):
+                teacher_p.data = self.tau * teacher_p.data + (1.0 - self.tau) * p.data
 
-    #         # update tau
-    #         max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
-    #         self.tau = 1 - (1 - self.initial_tau) * (math.cos(math.pi * self.global_step / max_steps) + 1) / 2
+            # update tau
+            max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
+            self.tau = 1 - (1 - self.initial_tau) * (math.cos(math.pi * self.global_step / max_steps) + 1) / 2
 
     def validation_step(self, batch, batch_idx):
         pass
