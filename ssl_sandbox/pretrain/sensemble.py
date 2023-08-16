@@ -1,5 +1,7 @@
 import collections
 import math
+from typing import Any, Optional
+from pytorch_lightning.utilities.types import STEP_OUTPUT
 from sklearn.metrics import roc_auc_score
 
 import torch
@@ -84,6 +86,9 @@ class Sensemble(pl.LightningModule):
         self.log(f'train/loss', loss, on_epoch=True)
 
         return loss
+
+    def validation_step(self, batch, batch_idx):
+        pass
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
