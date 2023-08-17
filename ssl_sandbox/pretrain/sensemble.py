@@ -1,11 +1,11 @@
+from typing import Any
 import collections
 import math
-from pytorch_lightning.utilities.types import EPOCH_OUTPUT
 from sklearn.metrics import roc_auc_score
 from copy import deepcopy
 
 import torch
-from torch import nn
+import torch.nn as nn
 import torch.nn.functional as F
 
 import pytorch_lightning as pl
@@ -45,7 +45,8 @@ class Sensemble(pl.LightningModule):
             weight_decay: float = 1e-6,
             warmup_epochs: int = 10,
             ema: bool = False,
-            initial_tau: float = 0.996
+            initial_tau: float = 0.996,
+            **hparams: Any
     ):
         super().__init__()
 
@@ -98,7 +99,7 @@ class Sensemble(pl.LightningModule):
             # update tau
             max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
             self.tau = 1 - (1 - self.initial_tau) * (1 - self.global_step / max_steps)
-    
+
     def training_epoch_end(self, outputs):
         # update me-max regularization weight
         self.memax_weight *= 0.995

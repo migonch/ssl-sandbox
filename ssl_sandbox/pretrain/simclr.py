@@ -1,5 +1,7 @@
+from typing import Any
+
 import torch
-from torch import nn
+import torch.nn as nn
 import torch.nn.functional as F
 
 import pytorch_lightning as pl
@@ -18,7 +20,8 @@ class SimCLR(pl.LightningModule):
             decoupled: bool = False,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
-            warmup_epochs: int = 10
+            warmup_epochs: int = 10,
+            **hparams: Any
     ):
         super().__init__()
 

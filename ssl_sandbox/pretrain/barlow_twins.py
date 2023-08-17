@@ -1,11 +1,10 @@
-from typing import *
+from typing import Any
 from sklearn.metrics import roc_auc_score
 import numpy as np
 
 import torch
-from torch import nn
+import torch.nn as nn
 import torch.nn.functional as F
-from torchmetrics import AUROC
 
 import pytorch_lightning as pl
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
@@ -24,7 +23,8 @@ class BarlowTwins(pl.LightningModule):
             unbiased: bool = False,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
-            warmup_epochs: int = 10
+            warmup_epochs: int = 10,
+            **hparams: Any
     ):
         super().__init__()
 
@@ -88,9 +88,6 @@ class BarlowTwins(pl.LightningModule):
 
 class BarlowTwinsOODDetection(pl.Callback):
     def on_validation_epoch_start(self, trainer, pl_module) -> None:
-        self.val_ood_auroc = AUROC('binary')
-        self.val_ood_auroc_md = AUROC('binary')
-
         self.ood_labels = []
         self.ood_scores = []
         self.md_scores = []
@@ -102,23 +99,18 @@ class BarlowTwinsOODDetection(pl.Callback):
         with eval_mode(pl_module.encoder, enable_dropout=True), eval_mode(pl_module.projector):
             embeds = torch.stack([pl_module.projector(pl_module.encoder(v)) for v in views]).detach().cpu()
             ood_scores = embeds.var(0).mean(-1)
-        self.val_ood_auroc.update(ood_scores, ood_labels)
 
         with eval_mode(pl_module.encoder), eval_mode(pl_module.projector):
             embeds = pl_module.projector(pl_module.encoder(images)).detach().cpu()
             md_scores = embeds.pow_(2).sum(-1)
-        self.val_ood_auroc_md.update(md_scores, ood_labels)
-        
+
         self.ood_labels.extend(ood_labels.tolist())
         self.ood_scores.extend(ood_scores.tolist())
         self.md_scores.extend(md_scores.tolist())
 
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
-        self.log('val/ood_auroc', self.val_ood_auroc.compute())
-        self.log('val/ood_auroc_md', self.val_ood_auroc_md.compute())
-
-        self.log('val/ood_auroc_sklearn', roc_auc_score(self.ood_labels, self.ood_scores))
-        self.log('val/ood_auroc_md_sklearn', roc_auc_score(self.ood_labels, self.md_scores))
+        self.log('val/ood_auroc', roc_auc_score(self.ood_labels, self.ood_scores))
+        self.log('val/ood_auroc_md', roc_auc_score(self.ood_labels, self.md_scores))
 
         ood_scores = np.array(self.ood_scores)
         ood_labels = np.array(self.ood_labels)

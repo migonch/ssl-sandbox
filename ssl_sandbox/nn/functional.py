@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 
 import torch
-from torch import nn
+import torch.nn as nn
 
 
 def entropy(p: torch.Tensor, dim: int) -> torch.Tensor:
@@ -24,7 +24,7 @@ def eval_mode(module: nn.Module, enable_dropout: bool = False):
         module.eval()
         if enable_dropout:
             for m in module.modules():
-                if m.__class__.__name__.startswith('Dropout'):
+                if m.__class__.__name__.startswith('Drop'):
                     m.train()
         yield module
     finally:

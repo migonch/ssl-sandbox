@@ -1,9 +1,9 @@
-from typing import *
+from typing import Any
 import numpy as np
 from sklearn.metrics import roc_auc_score
 
 import torch
-from torch import nn
+import torch.nn as nn
 import torch.nn.functional as F
 from torchmetrics import AUROC
 
@@ -24,7 +24,8 @@ class VICReg(pl.LightningModule):
             v_weight: float = 25.0,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
-            warmup_epochs: int = 10
+            warmup_epochs: int = 10,
+            **hparams: Any
     ):
         super().__init__()
 
@@ -85,8 +86,6 @@ class VICReg(pl.LightningModule):
 
 class VICRegOODDetection(pl.Callback):
     def on_validation_epoch_start(self, trainer, pl_module) -> None:
-        self.val_ood_auroc = AUROC('binary')
-
         self.ood_labels = []
         self.ood_scores = []
 
@@ -97,15 +96,12 @@ class VICRegOODDetection(pl.Callback):
         with eval_mode(pl_module.encoder, enable_dropout=True), eval_mode(pl_module.projector):
             embeds = torch.stack([pl_module.projector(pl_module.encoder(v)).detach().cpu() for v in views])
             ood_scores = embeds.var(0).mean(-1)
-        self.val_ood_auroc.update(ood_scores, ood_labels)
 
         self.ood_labels.extend(ood_labels.tolist())
         self.ood_scores.extend(ood_scores.tolist())
 
     def on_validation_epoch_end(self, trainer, pl_module) -> None:
-        self.log('val/ood_auroc', self.val_ood_auroc.compute())
-
-        self.log('val/ood_auroc_sklearn', roc_auc_score(self.ood_labels, self.ood_scores))
+        self.log('val/ood_auroc', roc_auc_score(self.ood_labels, self.ood_scores))
 
         ood_scores = np.array(self.ood_scores)
         ood_labels = np.array(self.ood_labels)
