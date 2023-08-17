@@ -148,8 +148,8 @@ class Sensemble(pl.LightningModule):
             y_score = np.array(v)
 
             self.log(f'val/ood_auroc_{k}', roc_auc_score(y_true, y_score))
-            self.log(f'val/avg_{k}_for_ood_data', y_score[y_true])
-            self.log(f'val/avg_{k}_for_id_data', y_score[~y_true])
+            self.log(f'val/avg_{k}_for_ood_data', y_score[y_true].mean())
+            self.log(f'val/avg_{k}_for_id_data', y_score[~y_true].mean())
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)

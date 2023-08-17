@@ -103,7 +103,7 @@ def main(args):
     )
 
     dropout_params = dict(
-        dropout_rate=args.drop_rate,
+        dropout_rate=args.dropout_rate,
         drop_channel_rate=args.drop_channel_rate,
         drop_block_rate=args.drop_block_rate,
         drop_path_rate=args.drop_path_rate,
@@ -126,7 +126,7 @@ def main(args):
     hparams = dict(
         batch_size=args.batch_size,
         method=args.method,
-        encoder=args.encoder,
+        encoder_architecture=args.encoder,
         **dropout_params,
         clip_grad=args.clip_grad
     )
