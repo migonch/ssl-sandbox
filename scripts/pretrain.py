@@ -11,8 +11,7 @@ import timm
 
 from ssl_sandbox.nn.resnet import resnet50
 from ssl_sandbox.pretrain import (
-    SimCLR, BarlowTwins, BarlowTwinsOODDetection, VICReg, VICRegOODDetection,
-    Sensemble, SensembleOODDetection
+    SimCLR, BarlowTwins, BarlowTwinsOODDetection, VICReg, VICRegOODDetection, Sensemble
 )
 from ssl_sandbox.eval import OnlineProbing
 from ssl_sandbox.datamodules import CIFAR4vs6DataModule
@@ -178,8 +177,6 @@ def main(args):
         callbacks.append(BarlowTwinsOODDetection())
     if args.method == 'vicreg':
         callbacks.append(VICRegOODDetection())
-    if args.method == 'sensemble':
-        callbacks.append(SensembleOODDetection())
 
     logger = TensorBoardLogger(
         save_dir=args.log_dir,

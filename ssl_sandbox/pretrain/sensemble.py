@@ -3,6 +3,7 @@ import collections
 import math
 from sklearn.metrics import roc_auc_score
 from copy import deepcopy
+import numpy as np
 
 import torch
 import torch.nn as nn
@@ -89,6 +90,7 @@ class Sensemble(pl.LightningModule):
         self.log(f'train/bootstrap_loss', bootstrap_loss, on_epoch=True)
         self.log(f'train/memax_reg', memax, on_epoch=True)
         self.log(f'train/loss', loss, on_epoch=True)
+        self.log(f'train/entropy', entropy(probas, dim=-1).mean())
 
         return loss
 
@@ -102,12 +104,52 @@ class Sensemble(pl.LightningModule):
             max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
             self.tau = 1 - (1 - self.initial_tau) * (1 - self.global_step / max_steps)
 
-    def training_epoch_end(self, outputs):
+    def on_train_epoch_end(self):
         # update me-max regularization weight
         self.memax_weight *= self.memax_weight_decay
 
+    @staticmethod
+    def compute_ood_scores(ensemble_probas: torch.Tensor) -> torch.Tensor:
+        mean_entropies = entropy(ensemble_probas.mean(dim=0), dim=-1)
+        expected_entropies = entropy(ensemble_probas, dim=-1).mean(dim=0)
+        bald_scores = mean_entropies - expected_entropies
+        return mean_entropies, expected_entropies, bald_scores
+    
+    def on_validation_epoch_start(self):
+        self.ood_labels = []
+        self.ood_scores = collections.defaultdict(list)
+
     def validation_step(self, batch, batch_idx):
-        pass
+        (images, *views), labels = batch
+        ood_labels = labels.cpu() == -1
+
+        ood_scores = {}
+        with eval_mode(self.encoder):
+            ood_scores['entropy'] = entropy(self.forward(images).cpu(), dim=-1)
+
+        with eval_mode(self.encoder, enable_dropout=True), eval_mode(self.projector):
+            ensemble_probas = torch.stack([self.forward(images).cpu() for _ in range(len(views))])
+            (ood_scores['mean_entropy'],
+             ood_scores['expected_entropy'],
+             ood_scores['bald_score']) = self.compute_ood_scores(ensemble_probas)
+
+            ensemble_probas = torch.stack([self.forward(v).cpu() for v in views])
+            (ood_scores['mean_entropy_on_views'],
+             ood_scores['expected_entropy_on_views'],
+             ood_scores['bald_score_on_views']) = self.compute_ood_scores(ensemble_probas)
+
+        self.ood_labels.extend(ood_labels.tolist())
+        for k, v in ood_scores.items():
+            self.ood_scores[k].extend(v.tolist())
+
+    def on_validation_epoch_end(self):
+        for k, v in self.ood_scores.items():
+            y_true = np.array(self.ood_labels)
+            y_score = np.array(v)
+
+            self.log(f'val/ood_auroc_{k}', roc_auc_score(y_true, y_score))
+            self.log(f'val/avg_{k}_for_ood_data', y_score[y_true])
+            self.log(f'val/avg_{k}_for_id_data', y_score[~y_true])
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
@@ -116,43 +158,3 @@ class Sensemble(pl.LightningModule):
             optimizer, warmup_epochs=self.warmup_epochs, max_epochs=self.trainer.max_epochs
         )
         return {'optimizer': optimizer, 'lr_scheduler': scheduler}
-
-
-def compute_ood_scores(ensemble_probas: torch.Tensor) -> torch.Tensor:
-    mean_entropies = entropy(ensemble_probas.mean(dim=0), dim=-1)
-    expected_entropies = entropy(ensemble_probas, dim=-1).mean(dim=0)
-    bald_scores = mean_entropies - expected_entropies
-    return mean_entropies, expected_entropies, bald_scores
-
-
-class SensembleOODDetection(pl.Callback):
-    def on_validation_epoch_start(self, trainer, pl_module) -> None:
-        self.ood_labels = []
-        self.ood_scores = collections.defaultdict(list)
-
-    def on_validation_batch_end(self, trainer, pl_module: Sensemble, outputs, batch, batch_idx, dataloader_idx=0):
-        (images, *views), labels = batch
-        ood_labels = labels.cpu() == -1
-
-        ood_scores = {}
-        with eval_mode(pl_module.encoder):
-            ood_scores['entropy'] = entropy(pl_module(images).cpu(), dim=-1)
-
-        with eval_mode(pl_module.encoder, enable_dropout=True), eval_mode(pl_module.projector):
-            ensemble_probas = torch.stack([pl_module(images).cpu() for _ in range(len(views))])
-            (ood_scores['mean_entropy'],
-             ood_scores['expected_entropy'],
-             ood_scores['bald_score']) = compute_ood_scores(ensemble_probas)
-
-            ensemble_probas = torch.stack([pl_module(v).cpu() for v in views])
-            (ood_scores['mean_entropy_on_views'],
-             ood_scores['expected_entropy_on_views'],
-             ood_scores['bald_score_on_views']) = compute_ood_scores(ensemble_probas)
-
-        self.ood_labels.extend(ood_labels.tolist())
-        for k, v in ood_scores.items():
-            self.ood_scores[k].extend(v.tolist())
-
-    def on_validation_epoch_end(self, trainer, pl_module) -> None:
-        for k, v in self.ood_scores.items():
-            self.log(f'val/ood_auroc_{k}', roc_auc_score(self.ood_labels, v))
