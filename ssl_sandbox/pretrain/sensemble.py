@@ -41,6 +41,7 @@ class Sensemble(pl.LightningModule):
             temp: float = 0.1,
             teacher_temp: float = 0.025,
             initial_memax_weight: float = 25.0,
+            memax_weight_decay: float = 0.995,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
             warmup_epochs: int = 10,
@@ -60,6 +61,7 @@ class Sensemble(pl.LightningModule):
         self.temp = temp
         self.teacher_temp = teacher_temp
         self.initial_memax_weight = self.memax_weight = initial_memax_weight
+        self.memax_weight_decay = memax_weight_decay
         self.lr = lr
         self.weight_decay = weight_decay
         self.warmup_epochs = warmup_epochs
@@ -102,7 +104,7 @@ class Sensemble(pl.LightningModule):
 
     def training_epoch_end(self, outputs):
         # update me-max regularization weight
-        self.memax_weight *= 0.995
+        self.memax_weight *= self.memax_weight_decay
 
     def validation_step(self, batch, batch_idx):
         pass
