@@ -181,11 +181,14 @@ def main(args):
     if args.method == 'sensemble':
         callbacks.append(SensembleOODDetection())
 
+    logger = TensorBoardLogger(
+        save_dir=args.log_dir,
+        name=f'pretrain/{args.dataset.lower()}/{args.method}'
+    )
+    logger.log_hyperparams(model.hparams)
+
     trainer = pl.Trainer(
-        logger=TensorBoardLogger(
-            save_dir=args.log_dir,
-            name=f'pretrain/{args.dataset.lower()}/{args.method}'
-        ),
+        logger=logger,
         callbacks=callbacks,
         accelerator='gpu',
         max_epochs=args.num_epochs,
