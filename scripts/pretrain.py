@@ -37,7 +37,7 @@ def parse_args():
     parser.add_argument('--barlow_twins_proj_dim', type=int, default=8192)
     parser.add_argument('--vicreg_proj_dim', type=int, default=8192)
     parser.add_argument('--vicreg_i_weight', type=float, default=25.0)
-    parser.add_argument('--sensemble_num_prototypes', type=int, default=256)
+    parser.add_argument('--sensemble_num_prototypes', type=int, default=1024)
     parser.add_argument('--sensemble_initial_memax_weight', type=float, default=25.0)
     parser.add_argument('--sensemble_ema', default=False, action='store_true')
 
