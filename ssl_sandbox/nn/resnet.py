@@ -17,7 +17,7 @@ class BasicBlock(_BasicBlock):
             **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        
+
         self.dropout = nn.Dropout(dropout_rate)
         self.drop_channel = nn.Dropout2d(drop_channel_rate)
 
@@ -60,7 +60,7 @@ class Bottleneck(_Bottleneck):
             **kwargs,
     ):
         super().__init__(*args, **kwargs)
-        
+
         self.dropout = nn.Dropout(dropout_rate)
         self.drop_channel = nn.Dropout2d(drop_channel_rate)
 
@@ -74,8 +74,8 @@ class Bottleneck(_Bottleneck):
         x = self.conv2(x)
         x = self.bn2(x)
         x = self.act2(x)
-        
-        x = self.drop_block(x)
+
+        x = self.dropout(x)
         x = self.drop_channel(x)
         x = self.drop_block(x)
 
@@ -98,8 +98,12 @@ class Bottleneck(_Bottleneck):
         return x
 
 
-def resnet50(**kwargs) -> ResNet:
+def resnet50(dropout_rate=0.0, drop_channel_rate=0.0, **kwargs) -> ResNet:
     """Constructs a ResNet-50 model.
     """
-    kwargs = dict(block=Bottleneck, layers=[3, 4, 6, 3], **kwargs)
-    return _create_resnet('resnet50', **kwargs)
+    if 'block_args' in kwargs:
+        kwargs['block_args'].update(dropout_rate=dropout_rate, drop_channel_rate=drop_channel_rate)
+    else:
+        kwargs['block_args'] = dict(dropout_rate=dropout_rate, drop_channel_rate=drop_channel_rate)
+
+    return _create_resnet('resnet50', block=Bottleneck, layers=[3, 4, 6, 3], **kwargs)
