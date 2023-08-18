@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 
+import torch
 import torch.nn as nn
 
 import pytorch_lightning as pl
@@ -44,7 +45,7 @@ def parse_args():
     parser.add_argument('--batch_size', type=int, default=384)
     parser.add_argument('--num_workers', type=int, default=8)
 
-    parser.add_argument('--lr', type=float, default=5e-2)
+    parser.add_argument('--base_lr', type=float, default=1e-2)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--warmup_epochs', type=int, default=100)
     parser.add_argument('--num_epochs', type=int, default=3000)
@@ -117,9 +118,10 @@ def main(args):
                 encoder = adapt_to_cifar10(encoder)
         case _:
             raise ValueError(args.encoder)
-
+    
+    lr = args.base_lr * args.batch_size * torch.cuda.device_count() / 256
     optimizer_kwargs = dict(
-        lr=args.lr,
+        lr=lr,
         weight_decay=args.weight_decay,
         warmup_epochs=args.warmup_epochs
     )
@@ -128,7 +130,8 @@ def main(args):
         method=args.method,
         encoder_architecture=args.encoder,
         **dropout_params,
-        clip_grad=args.clip_grad
+        clip_grad=args.clip_grad,
+        base_lr=args.base_lr
     )
     match args.method:
         case 'simclr':
