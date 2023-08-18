@@ -88,11 +88,15 @@ class OnlineProbing(pl.Callback):
         self.nonlinear_head = MLP(embed_dim, embed_dim, num_classes)
         self.nonlinear_optimizer = torch.optim.Adam(self.nonlinear_head.parameters(), lr=lr)
 
-        self.num_classes = num_classes
+        self.val_lin_prob_acc = Accuracy('multiclass', num_classes=num_classes)
+        self.val_nonlin_prob_acc = Accuracy('multiclass', num_classes=num_classes)
 
     def on_fit_start(self, trainer, pl_module):
         self.linear_head.to(pl_module.device)
         self.nonlinear_head.to(pl_module.device)
+
+        self.val_lin_prob_acc.to(pl_module.device)
+        self.val_nonlin_prob_acc.to(pl_module.device)
 
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         (images, *_), labels = batch
@@ -106,15 +110,9 @@ class OnlineProbing(pl.Callback):
 
             optimizer.zero_grad()
             loss = F.cross_entropy(head(embeds), labels)
-            self.log(f'train/{prefix}_probing_loss', loss, on_epoch=True)
+            pl_module.log(f'train/{prefix}_probing_loss', loss, on_epoch=True, sync_dist=True)
             loss.backward()
             optimizer.step()
-
-    def on_validation_epoch_start(self, trainer, pl_module):
-        self.val_lin_prob_acc = Accuracy('multiclass', num_classes=self.num_classes).to(pl_module.device)
-        self.val_nonlin_prob_acc = Accuracy('multiclass', num_classes=self.num_classes).to(pl_module.device)
-
-        self.val_embeds = []
 
     def on_validation_batch_end(self, trainer, pl_module, outputs, batch, batch_idx, dataloader_idx=0):
         (images, *_), labels = batch
@@ -126,16 +124,8 @@ class OnlineProbing(pl.Callback):
         self.val_lin_prob_acc.update(self.linear_head(embeds), labels)
         self.val_nonlin_prob_acc.update(self.nonlinear_head(embeds), labels)
 
-        self.val_embeds.extend([
-            {'embedding': e.tolist(), 'label': str(l.item())}
-            for e, l in zip(embeds, labels)
-        ])
-
     def on_validation_epoch_end(self, trainer, pl_module):
-        pl_module.log(f'val/linear_probing_accuracy', self.val_lin_prob_acc.compute())
-        pl_module.log(f'val/nonlinear_probing_accuracy', self.val_nonlin_prob_acc.compute())
-
-        logger: TensorBoardLogger = trainer.logger
-
-        with open(f'{logger.log_dir}/val_embeddings.json', 'w') as f:
-            json.dump(self.val_embeds, f)
+        pl_module.log(f'val/linear_probing_accuracy', self.val_lin_prob_acc.compute(), sync_dist=True)
+        self.val_lin_prob_acc.reset()
+        pl_module.log(f'val/nonlinear_probing_accuracy', self.val_nonlin_prob_acc.compute(), sync_dist=True)
+        self.val_nonlin_prob_acc.reset()

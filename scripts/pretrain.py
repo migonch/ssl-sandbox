@@ -4,7 +4,8 @@ import torch.nn as nn
 
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.callbacks import LearningRateMonitor
+from pytorch_lightning.callbacks import LearningRateMonitor, DeviceStatsMonitor
+from pytorch_lightning.strategies import DDPStrategy
 from pl_bolts.datamodules import CIFAR10DataModule
 
 import timm
@@ -40,11 +41,10 @@ def parse_args():
     parser.add_argument('--sensemble_initial_memax_weight', type=float, default=25.0)
     parser.add_argument('--sensemble_ema', default=False, action='store_true')
 
-    # TODO: increase batch size
-    parser.add_argument('--batch_size', type=int, default=256)
+    parser.add_argument('--batch_size', type=int, default=384)
     parser.add_argument('--num_workers', type=int, default=8)
 
-    parser.add_argument('--lr', type=float, default=1e-2)
+    parser.add_argument('--lr', type=float, default=5e-2)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--warmup_epochs', type=int, default=100)
     parser.add_argument('--num_epochs', type=int, default=3000)
@@ -171,7 +171,8 @@ def main(args):
 
     callbacks = [
         OnlineProbing(embed_dim, dm.num_classes),
-        LearningRateMonitor()
+        LearningRateMonitor(),
+        DeviceStatsMonitor()
     ]
     if args.method == 'barlow_twins':
         callbacks.append(BarlowTwinsOODDetection())
@@ -187,9 +188,13 @@ def main(args):
     trainer = pl.Trainer(
         logger=logger,
         callbacks=callbacks,
+        profiler='simple',
         accelerator='gpu',
+        devices=-1,
+        strategy=DDPStrategy(find_unused_parameters=False),
         max_epochs=args.num_epochs,
         gradient_clip_val=args.clip_grad,
+        log_every_n_steps=10
     )
     trainer.fit(model, datamodule=dm)
 
