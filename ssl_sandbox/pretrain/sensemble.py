@@ -39,8 +39,7 @@ class Sensemble(pl.LightningModule):
             num_prototypes: int = 1024,
             temp: float = 0.1,
             teacher_temp: float = 0.025,
-            initial_memax_weight: float = 25.0,
-            memax_weight_decay: float = 0.995,
+            memax_weight: float = 25.0,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
             warmup_epochs: int = 10,
@@ -59,14 +58,13 @@ class Sensemble(pl.LightningModule):
         self.num_prototypes = num_prototypes
         self.temp = temp
         self.teacher_temp = teacher_temp
-        self.initial_memax_weight = self.memax_weight = initial_memax_weight
-        self.memax_weight_decay = memax_weight_decay
+        self.memax_weight = memax_weight
         self.lr = lr
         self.weight_decay = weight_decay
         self.warmup_epochs = warmup_epochs
         self.ema = ema
         self.initial_tau = self.tau = initial_tau
-        
+
         self.val_auroc_entropy = AUROC('binary')
         self.val_avg_entropy_for_ood_data = MeanMetric()
         self.val_avg_entropy_for_id_data = MeanMetric()
@@ -112,11 +110,6 @@ class Sensemble(pl.LightningModule):
             # update tau
             max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
             self.tau = 1 - (1 - self.initial_tau) * (1 - self.global_step / max_steps)
-
-    def on_train_epoch_end(self):
-        self.logger.log_metrics({'memax_weight': self.memax_weight}, self.global_step)
-        # update me-max regularization weight
-        self.memax_weight *= self.memax_weight_decay
 
     @staticmethod
     def compute_ood_scores(ensemble_probas: torch.Tensor) -> torch.Tensor:
