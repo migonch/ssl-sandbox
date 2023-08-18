@@ -94,9 +94,9 @@ class Sensemble(pl.LightningModule):
 
         loss = bootstrap_loss + self.memax_weight * memax
 
-        self.log(f'train/bootstrap_loss', bootstrap_loss, on_step=False, on_epoch=True, sync_dist=True)
-        self.log(f'train/memax_reg', memax, on_step=False, on_epoch=True, sync_dist=True)
-        self.log(f'train/loss', loss, on_step=False, on_epoch=True, sync_dist=True)
+        self.log(f'train/bootstrap_loss', bootstrap_loss, on_epoch=True, sync_dist=True)
+        self.log(f'train/memax_reg', memax, on_epoch=True, sync_dist=True)
+        self.log(f'train/loss', loss, on_epoch=True, sync_dist=True)
         self.log(f'train/entropy', entropy(probas, dim=-1).mean(), on_epoch=True, sync_dist=True)
 
         return loss
