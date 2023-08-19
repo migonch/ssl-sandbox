@@ -48,8 +48,10 @@ def parse_args():
     parser.add_argument('--base_lr', type=float, default=1e-2)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--warmup_epochs', type=int, default=100)
-    parser.add_argument('--num_epochs', type=int, default=3000)
+    parser.add_argument('--num_epochs', type=int, default=5000)
     parser.add_argument('--clip_grad', type=float)
+
+    parser.add_argument('--ckpt_path')
 
     return parser.parse_args()
 
@@ -199,7 +201,7 @@ def main(args):
         gradient_clip_val=args.clip_grad,
         log_every_n_steps=10
     )
-    trainer.fit(model, datamodule=dm)
+    trainer.fit(model, datamodule=dm, ckpt_path=args.ckpt_path)
 
 
 if __name__ == '__main__':
