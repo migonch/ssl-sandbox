@@ -5,7 +5,7 @@ import torch.nn as nn
 
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.callbacks import LearningRateMonitor, DeviceStatsMonitor
+from pytorch_lightning.callbacks import LearningRateMonitor, DeviceStatsMonitor, ModelCheckpoint
 from pytorch_lightning.strategies import DDPStrategy
 from pl_bolts.datamodules import CIFAR10DataModule
 
@@ -177,12 +177,16 @@ def main(args):
     callbacks = [
         OnlineProbing(embed_dim, dm.num_classes),
         LearningRateMonitor(),
-        DeviceStatsMonitor()
+        DeviceStatsMonitor(),
     ]
     if args.method == 'barlow_twins':
         callbacks.append(BarlowTwinsOODDetection())
     if args.method == 'vicreg':
         callbacks.append(VICRegOODDetection())
+    if args.method == 'sensemble':
+        callbacks.append(
+            ModelCheckpoint(save_top_k=1, monitor='val/ood_auroc_mean_entropy_on_views', filename='best', mode='max')
+        )
 
     logger = TensorBoardLogger(
         save_dir=args.log_dir,
