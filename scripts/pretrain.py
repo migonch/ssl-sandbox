@@ -39,7 +39,7 @@ def parse_args():
     parser.add_argument('--vicreg_proj_dim', type=int, default=8192)
     parser.add_argument('--vicreg_i_weight', type=float, default=25.0)
     parser.add_argument('--sensemble_num_prototypes', type=int, default=1024)
-    parser.add_argument('--sensemble_memax_weight', type=float, default=25.0)
+    parser.add_argument('--sensemble_memax_weight', type=float, default=1.0)
     parser.add_argument('--sensemble_num_sinkhorn_iters', type=int, default=3)
     parser.add_argument('--sensemble_asymmetrical', default=False, action='store_true')
     parser.add_argument('--sensemble_ema', default=False, action='store_true')
