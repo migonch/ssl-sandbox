@@ -41,7 +41,6 @@ def parse_args():
     parser.add_argument('--sensemble_num_prototypes', type=int, default=1024)
     parser.add_argument('--sensemble_memax_weight', type=float, default=1.0)
     parser.add_argument('--sensemble_num_sinkhorn_iters', type=int, default=3)
-    parser.add_argument('--sensemble_symmetrical', default=False, action='store_true')
     parser.add_argument('--sensemble_ema', default=False, action='store_true')
 
     parser.add_argument('--batch_size', type=int, default=384)
@@ -170,7 +169,6 @@ def main(args):
                 num_prototypes=args.sensemble_num_prototypes,
                 memax_weight=args.sensemble_memax_weight,
                 num_sinkhorn_iters=args.sensemble_num_sinkhorn_iters,
-                symmetrical=args.sensemble_symmetrical,
                 ema=args.sensemble_ema,
                 **optimizer_kwargs,
                 **hparams

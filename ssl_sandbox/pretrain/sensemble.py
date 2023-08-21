@@ -41,7 +41,6 @@ class Sensemble(pl.LightningModule):
             sharpen_temp: float = 0.25,
             memax_weight: float = 1.0,
             num_sinkhorn_iters: int = 3,
-            symmetrical: bool = False,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
             warmup_epochs: int = 10,
@@ -62,7 +61,6 @@ class Sensemble(pl.LightningModule):
         self.sharpen_temp = sharpen_temp
         self.memax_weight = memax_weight
         self.num_sinkhorn_iters = num_sinkhorn_iters
-        self.symmetrical = symmetrical
         self.lr = lr
         self.weight_decay = weight_decay
         self.warmup_epochs = warmup_epochs
@@ -85,44 +83,19 @@ class Sensemble(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         (_, views_1, views_2), _ = batch
 
-        if not self.symmetrical:
-            logits = self.projector(self.encoder(views_1)) / self.temp  # (batch_size, num_prototypes)
+        logits = self.projector(self.encoder(views_1)) / self.temp  # (batch_size, num_prototypes)
 
-            with torch.no_grad():
-                targets = torch.softmax(self.projector(self.teacher(views_2)) / self.temp / self.sharpen_temp, dim=-1)
+        with torch.no_grad():
+            targets = torch.softmax(self.projector(self.teacher(views_2)) / self.temp / self.sharpen_temp, dim=-1)
 
-            if self.num_sinkhorn_iters > 0:
-                targets = self.sinkhorn(targets)
+        if self.num_sinkhorn_iters > 0:
+            targets = self.sinkhorn(targets)
 
-            bootstrap_loss = F.cross_entropy(logits, targets)
+        bootstrap_loss = F.cross_entropy(logits, targets)
 
-            probas = torch.softmax(logits, dim=-1)  # (batch_size, num_prototypes)
-            probas = self.all_gather(probas, sync_grads=True)  # (world_size, batch_size, num_prototypes)
-            memax = math.log(self.num_prototypes) - entropy(probas.mean(dim=(0, 1)), dim=-1)
-        else:
-            logits_1 = self.projector(self.encoder(views_1)) / self.temp
-            logits_2 = self.projector(self.encoder(views_2)) / self.temp
-
-            targets_1 = torch.softmax(logits_2.detach() / self.sharpen_temp, dim=-1)
-            targets_2 = torch.softmax(logits_1.detach() / self.sharpen_temp, dim=-1)
-
-            if self.num_sinkhorn_iters > 0:
-                targets_1 = self.sinkhorn(targets_1)
-                targets_2 = self.sinkhorn(targets_2)
-
-            bootstrap_loss_1 = F.cross_entropy(logits_1, targets_1)
-            bootstrap_loss_2 = F.cross_entropy(logits_2, targets_2)
-            bootstrap_loss = (bootstrap_loss_1 + bootstrap_loss_2) / 2
-
-            probas_1 = torch.softmax(logits_1, dim=-1)
-            probas_2 = torch.softmax(logits_2, dim=-1)
-
-            probas_1 = self.all_gather(probas_1, sync_grads=True)  # (world_size, batch_size, num_prototypes)
-            probas_2 = self.all_gather(probas_2, sync_grads=True)
-
-            memax_1 = math.log(self.num_prototypes) - entropy(probas_1.mean(dim=(0, 1)), dim=-1)
-            memax_2 = math.log(self.num_prototypes) - entropy(probas_2.mean(dim=(0, 1)), dim=-1)
-            memax = (memax_1 + memax_2) / 2
+        probas = torch.softmax(logits, dim=-1)  # (batch_size, num_prototypes)
+        probas = self.all_gather(probas, sync_grads=True)  # (world_size, batch_size, num_prototypes)
+        memax = math.log(self.num_prototypes) - entropy(probas.mean(dim=(0, 1)), dim=-1)
 
         loss = bootstrap_loss + self.memax_weight * memax
 
