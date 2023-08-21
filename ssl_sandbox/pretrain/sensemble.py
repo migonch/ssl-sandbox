@@ -38,8 +38,10 @@ class Sensemble(pl.LightningModule):
             prototype_dim: int = 256,
             num_prototypes: int = 1024,
             temp: float = 0.1,
-            teacher_temp: float = 0.025,
-            memax_weight: float = 25.0,
+            sharpen_temp: float = 0.25,
+            memax_weight: float = 1.0,
+            num_sinkhorn_iters: int = 3,
+            symmetrical: bool = True,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
             warmup_epochs: int = 10,
@@ -57,8 +59,10 @@ class Sensemble(pl.LightningModule):
 
         self.num_prototypes = num_prototypes
         self.temp = temp
-        self.teacher_temp = teacher_temp
+        self.sharpen_temp = sharpen_temp
         self.memax_weight = memax_weight
+        self.num_sinkhorn_iters = num_sinkhorn_iters
+        self.symmetrical = symmetrical
         self.lr = lr
         self.weight_decay = weight_decay
         self.warmup_epochs = warmup_epochs
@@ -81,16 +85,44 @@ class Sensemble(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         (_, views_1, views_2), _ = batch
 
-        logits = self.projector(self.encoder(views_1)) / self.temp  # (batch_size, num_prototypes)
+        if self.symmetrical:
+            logits_1 = self.projector(self.encoder(views_1)) / self.temp
+            logits_2 = self.projector(self.encoder(views_2)) / self.temp
 
-        with torch.no_grad():
-            target = torch.softmax(self.projector(self.teacher(views_2)) / self.teacher_temp, dim=-1)
+            targets_1 = torch.softmax(logits_2.detach() / self.sharpen_temp, dim=-1)
+            targets_2 = torch.softmax(logits_1.detach() / self.sharpen_temp, dim=-1)
 
-        bootstrap_loss = F.cross_entropy(logits, target)
+            if self.num_sinkhorn_iters > 0:
+                targets_1 = self.sinkhorn(targets_1)
+                targets_2 = self.sinkhorn(targets_2)
 
-        probas = torch.softmax(logits, dim=-1)  # (batch_size, num_prototypes)
-        probas = self.all_gather(probas, sync_grads=True)  # (world_size, batch_size, num_prototypes)
-        memax = math.log(self.num_prototypes) - entropy(probas.mean(dim=(0, 1)), dim=-1)
+            bootstrap_loss_1 = F.cross_entropy(logits_1, targets_1)
+            bootstrap_loss_2 = F.cross_entropy(logits_2, targets_2)
+            bootstrap_loss = (bootstrap_loss_1 + bootstrap_loss_2) / 2
+
+            probas_1 = torch.softmax(logits_1, dim=-1)
+            probas_2 = torch.softmax(logits_2, dim=-1)
+
+            probas_1 = self.all_gather(probas_1, sync_grads=True)  # (world_size, batch_size, num_prototypes)
+            probas_2 = self.all_gather(probas_2, sync_grads=True)
+
+            memax_1 = math.log(self.num_prototypes) - entropy(probas_1.mean(dim=(0, 1)), dim=-1)
+            memax_2 = math.log(self.num_prototypes) - entropy(probas_2.mean(dim=(0, 1)), dim=-1)
+            memax = (memax_1 + memax_2) / 2
+        else:
+            logits = self.projector(self.encoder(views_1)) / self.temp  # (batch_size, num_prototypes)
+
+            with torch.no_grad():
+                targets = torch.softmax(self.projector(self.teacher(views_2)) / self.temp / self.sharpen_temp, dim=-1)
+
+            if self.num_sinkhorn_iters > 0:
+                targets = self.sinkhorn(targets)
+
+            bootstrap_loss = F.cross_entropy(logits, targets)
+
+            probas = torch.softmax(logits, dim=-1)  # (batch_size, num_prototypes)
+            probas = self.all_gather(probas, sync_grads=True)  # (world_size, batch_size, num_prototypes)
+            memax = math.log(self.num_prototypes) - entropy(probas.mean(dim=(0, 1)), dim=-1)
 
         loss = bootstrap_loss + self.memax_weight * memax
 
@@ -98,6 +130,7 @@ class Sensemble(pl.LightningModule):
         self.log(f'train/memax_reg', memax, on_epoch=True, sync_dist=True)
         self.log(f'train/loss', loss, on_epoch=True, sync_dist=True)
         self.log(f'train/entropy', entropy(probas, dim=-1).mean(), on_epoch=True, sync_dist=True)
+        self.logger.log_metrics({'memax_weight': self.memax_weight}, self.global_step)
 
         return loss
 
@@ -110,13 +143,6 @@ class Sensemble(pl.LightningModule):
             # update tau
             max_steps = len(self.trainer.train_dataloader) * self.trainer.max_epochs
             self.tau = 1 - (1 - self.initial_tau) * (1 - self.global_step / max_steps)
-
-    @staticmethod
-    def compute_ood_scores(ensemble_probas: torch.Tensor) -> torch.Tensor:
-        mean_entropies = entropy(ensemble_probas.mean(dim=0), dim=-1)
-        expected_entropies = entropy(ensemble_probas, dim=-1).mean(dim=0)
-        bald_scores = mean_entropies - expected_entropies
-        return mean_entropies, expected_entropies, bald_scores
 
     def validation_step(self, batch, batch_idx):
         (images, *views), labels = batch
@@ -169,3 +195,26 @@ class Sensemble(pl.LightningModule):
             optimizer, warmup_epochs=self.warmup_epochs, max_epochs=self.trainer.max_epochs
         )
         return {'optimizer': optimizer, 'lr_scheduler': scheduler}
+
+    @torch.no_grad()
+    def sinkhorn(self, targets: torch.Tensor) -> torch.Tensor:
+        gathered_targets = self.all_gather(targets)
+        world_size, batch_size, num_prototypes = gathered_targets.shape
+        targets /= gathered_targets.sum()
+
+        for _ in range(self.num_sinkhorn_iters):
+            targets /= self.all_gather(targets).sum(dim=(0, 1))
+            targets /= num_prototypes
+
+            targets /= targets.sum(dim=-1, keepdim=True)
+            targets /= world_size * batch_size
+
+        targets *= world_size * batch_size
+        return targets
+
+    @staticmethod
+    def compute_ood_scores(ensemble_probas: torch.Tensor) -> torch.Tensor:
+        mean_entropies = entropy(ensemble_probas.mean(dim=0), dim=-1)
+        expected_entropies = entropy(ensemble_probas, dim=-1).mean(dim=0)
+        bald_scores = mean_entropies - expected_entropies
+        return mean_entropies, expected_entropies, bald_scores
