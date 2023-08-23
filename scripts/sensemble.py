@@ -19,9 +19,9 @@ def parse_args():
     parser.add_argument('--log_dir', required=True)
     parser.add_argument('--cifar10_dir')
 
-    parser.add_argument('--dropout_rate', type=float, default=0.0)
-    parser.add_argument('--drop_channel_rate', type=float, default=0.5)
-    parser.add_argument('--drop_block_rate', type=float, default=0.0)
+    parser.add_argument('--dropout_rate', type=float, default=0.5)
+    parser.add_argument('--drop_channel_rate', type=float, default=0.0)
+    parser.add_argument('--drop_block_rate', type=float, default=0.1)
     parser.add_argument('--drop_path_rate', type=float, default=0.1)
 
     parser.add_argument('--num_prototypes', type=int, default=2048)
