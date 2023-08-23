@@ -109,7 +109,7 @@ class Sensemble(pl.LightningModule):
             self.sinkhorn_queue[:batch_size] = targets
 
             if batch_size * (self.global_step + 1) >= queue_size:
-                # queue is full
+                # queue is full and ready for usage
                 targets = self.sinkhorn(self.sinkhorn_queue.clone())[:batch_size]  # self.sinkhorn works inplace
             else:
                 targets = self.sinkhorn(targets)
@@ -133,7 +133,7 @@ class Sensemble(pl.LightningModule):
     def on_after_backward(self):
         if self.current_epoch == 0:
             # freeze prototypes during first epoch
-            self.prototypes.weights.grad = None
+            self.prototypes.weight.grad = None
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         self.normalize_prototypes()

@@ -68,7 +68,7 @@ def main(args):
 
     lr = args.base_lr * args.batch_size * torch.cuda.device_count() / 256
     model = Sensemble(
-        encoder='resnet50_cifar10',
+        encoder_architeture='resnet50_cifar10',
         dropout_rate=args.dropout_rate,
         drop_channel_rate=args.drop_channel_rate,
         drop_block_rate=args.drop_block_rate,
