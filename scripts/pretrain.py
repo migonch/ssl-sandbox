@@ -9,17 +9,17 @@ from pytorch_lightning.callbacks import LearningRateMonitor, DeviceStatsMonitor,
 from pytorch_lightning.strategies import DDPStrategy
 from pl_bolts.datamodules import CIFAR10DataModule
 
-import timm
-
-from ssl_sandbox.nn.resnet import resnet50
+from ssl_sandbox.nn.resnet import resnet50, adapt_to_cifar10
 from ssl_sandbox.pretrain import (
     SimCLR, BarlowTwins, BarlowTwinsOODDetection, VICReg, VICRegOODDetection, Sensemble
 )
 from ssl_sandbox.eval import OnlineProbing
 from ssl_sandbox.datamodules import CIFAR4vs6DataModule
-from ssl_sandbox.pretrain.transforms import SimCLRViews
+from ssl_sandbox.pretrain.transforms import (
+    SimCLRViews, SensembleTrainViews, SensembleInferenceViews
+)
 
- 
+
 def parse_args():
     parser = ArgumentParser()
 
@@ -43,7 +43,7 @@ def parse_args():
     parser.add_argument('--sensemble_num_sinkhorn_iters', type=int, default=3)
     parser.add_argument('--sensemble_ema', default=False, action='store_true')
 
-    parser.add_argument('--batch_size', type=int, default=384)
+    parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--num_workers', type=int, default=8)
 
     parser.add_argument('--base_lr', type=float, default=1e-2)
@@ -55,15 +55,6 @@ def parse_args():
     parser.add_argument('--ckpt_path')
 
     return parser.parse_args()
-
-
-def adapt_to_cifar10(resnet: timm.models.ResNet):
-    """See https://arxiv.org/pdf/2002.05709.pdf, Appendix B.9.
-    """
-    resnet.conv1 = nn.Conv2d(resnet.conv1.in_channels, resnet.conv1.out_channels,
-                             kernel_size=3, padding=1, bias=False)
-    resnet.maxpool = nn.Identity()
-    return resnet
 
 
 def main(args):

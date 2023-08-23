@@ -107,3 +107,12 @@ def resnet50(dropout_rate=0.0, drop_channel_rate=0.0, **kwargs) -> ResNet:
         kwargs['block_args'] = dict(dropout_rate=dropout_rate, drop_channel_rate=drop_channel_rate)
 
     return _create_resnet('resnet50', block=Bottleneck, layers=[3, 4, 6, 3], **kwargs)
+
+
+def adapt_to_cifar10(resnet: ResNet):
+    """See https://arxiv.org/pdf/2002.05709.pdf, Appendix B.9.
+    """
+    resnet.conv1 = nn.Conv2d(resnet.conv1.in_channels, resnet.conv1.out_channels,
+                             kernel_size=3, padding=1, bias=False)
+    resnet.maxpool = nn.Identity()
+    return resnet

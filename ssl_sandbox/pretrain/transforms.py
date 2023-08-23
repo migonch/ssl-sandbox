@@ -144,7 +144,79 @@ class MultiCrop:
 
     def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
         return (
-            self.random_global_view(image),
-            self.random_global_view(image),
+            self.first_global_view(image),
+            self.second_global_view(image),
             *[self.random_local_view(image) for _ in range(self.local_views_number)]
+        )
+
+
+class SensembleTrainViews:
+    def __init__(
+            self,
+            global_views_size: int,
+            local_views_size: int,
+            global_views_scale: Tuple[float, float] = (0.3, 1.0),
+            local_views_scale: Tuple[float, float] = (0.08, 0.3),
+            blur: bool = True,
+            local_views_number: int = 4,
+            final_transforms: Optional[Callable] = None
+    ) -> None:
+        self.first_global_view = RandomView(
+            global_views_size,
+            global_views_scale,
+            **BYOL_COLOR_JITTER_PARAMS,
+            blur_p=(1.0 if blur else 0.0),
+            final_transforms=final_transforms
+        )
+        self.second_global_view = RandomView(
+            global_views_size,
+            global_views_scale,
+            **BYOL_COLOR_JITTER_PARAMS,
+            blur_p=(0.1 if blur else 0.0),
+            solarization_p=0.2,
+            final_transforms=final_transforms
+        )
+        self.local_view = RandomView(
+            local_views_size,
+            local_views_scale,
+            **BYOL_COLOR_JITTER_PARAMS,
+            blur_p=(0.5 if blur else 0.0),
+            final_transforms=final_transforms
+        )
+        self.local_views_number = local_views_number
+
+    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
+        return (
+            self.first_global_view(image),
+            self.second_global_view(image),
+            *[self.random_local_view(image) for _ in range(self.local_views_number)]
+        )
+
+
+class SensembleInferenceViews:
+    """Set ``blur=False`` for CIFAR10 dataset (according to https://arxiv.org/abs/2002.05709).
+    """
+    def __init__(
+            self,
+            size: int,
+            blur: bool = True,
+            final_transforms: Optional[Callable] = None,
+            views_number: int = 10
+    ) -> None:
+        if final_transforms is None:
+            final_transforms = T.ToTensor()
+
+        self.random_view = RandomView(
+            size,
+            **BYOL_COLOR_JITTER_PARAMS,
+            blur_p=(0.5 if blur else 0.0),
+            final_transforms=final_transforms,
+        )
+        self.final_transforms = final_transforms
+        self.views_number = views_number
+
+    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
+        return (
+            self.final_transforms(image),
+            *[self.random_view(image) for _ in range(self.views_number)]
         )
