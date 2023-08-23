@@ -52,8 +52,8 @@ class Sensemble(pl.LightningModule):
         self.encoder = encoder
         self.embed_dim = embed_dim
         self.mlp = MLP(embed_dim, embed_dim, prototype_dim, dropout_rate=dropout_rate)
-        self.prototypes = nn.Linear(prototype_dim, num_prototypes, bias=False)
-        self.normalize_prototypes()
+        self.prototypes = nn.Parameter(torch.zeros(num_prototypes, prototype_dim))
+        nn.init.uniform_(self.prototypes, -(1. / prototype_dim) ** 0.5, (1. / prototype_dim) ** 0.5)
 
         self.num_prototypes = num_prototypes
         self.temp = temp
@@ -81,13 +81,11 @@ class Sensemble(pl.LightningModule):
         queue_size = self.sinkhorn_queue_size // self.trainer.world_size
         self.sinkhorn_queue = torch.zeros(queue_size, self.num_prototypes, device=self.device)
 
-    @torch.no_grad()
-    def normalize_prototypes(self):
-        self.prototypes.weight.data = F.normalize(self.prototypes.weight.data, dim=1)
-
     def to_logits(self, images):
-        return self.prototypes(self.mlp(self.encoder(images))) / self.temp
-    
+        embeds = F.normalize(self.mlp(self.encoder(images)), dim=-1)
+        prototypes = F.normalize(prototypes, dim=-1)
+        return torch.matmul(embeds, prototypes.T) / self.temp
+
     def forward(self, images):
         return torch.softmax(self.to_logits(images), dim=-1)
 
@@ -135,9 +133,6 @@ class Sensemble(pl.LightningModule):
     #     if self.current_epoch == 0:
     #         # freeze prototypes during first epoch
     #         self.prototypes.weight.grad = None
-
-    def on_train_batch_end(self, outputs, batch, batch_idx):
-        self.normalize_prototypes()
 
     def validation_step(self, batch, batch_idx):
         (images, *views), labels = batch
