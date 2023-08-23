@@ -16,8 +16,6 @@ from ssl_sandbox.pretrain.transforms import SimCLRViews
 def parse_args():
     parser = ArgumentParser()
 
-    parser.add_argument('--dataset', required=True)
-    parser.add_argument('--encoder', required=True)
     parser.add_argument('--log_dir', required=True)
     parser.add_argument('--cifar10_dir')
 
@@ -70,7 +68,7 @@ def main(args):
 
     lr = args.base_lr * args.batch_size * torch.cuda.device_count() / 256
     model = Sensemble(
-        encoder=args.encoder,
+        encoder='resnet50_cifar10',
         dropout_rate=args.dropout_rate,
         drop_channel_rate=args.drop_channel_rate,
         drop_block_rate=args.drop_block_rate,
@@ -95,7 +93,7 @@ def main(args):
 
     logger = TensorBoardLogger(
         save_dir=args.log_dir,
-        name=f'pretrain/{args.dataset.lower()}/{args.method}'
+        name=f'pretrain/cifar4vs6/sensemble'
     )
     logger.log_hyperparams(model.hparams)
 
