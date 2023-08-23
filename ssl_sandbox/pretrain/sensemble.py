@@ -18,7 +18,7 @@ class Sensemble(pl.LightningModule):
     def __init__(
             self,
             encoder: Literal['resnet50', 'resnet50_cifar10'],
-            dropout_rate: float = 0.0,
+            dropout_rate: float = 0.5,
             drop_channel_rate: float = 0.0,
             drop_block_rate: float = 0.1,
             drop_path_rate: float = 0.1,
@@ -38,7 +38,6 @@ class Sensemble(pl.LightningModule):
 
         if encoder in ['resnet50', 'resnet50_cifar10']:
             encoder = resnet50(
-                dropout_rate=dropout_rate,
                 drop_channel_rate=drop_channel_rate,
                 drop_block_rate=drop_block_rate,
                 drop_path_rate=drop_path_rate
@@ -52,7 +51,7 @@ class Sensemble(pl.LightningModule):
 
         self.encoder = encoder
         self.embed_dim = embed_dim
-        self.mlp = MLP(embed_dim, embed_dim, prototype_dim)
+        self.mlp = MLP(embed_dim, embed_dim, prototype_dim, dropout_rate=dropout_rate)
         self.prototypes = nn.Linear(prototype_dim, num_prototypes, bias=False)
         self.normalize_prototypes()
 
@@ -134,7 +133,7 @@ class Sensemble(pl.LightningModule):
     def on_after_backward(self):
         if self.current_epoch == 0:
             # freeze prototypes during first epoch
-            self.projector.prototypes.grad = None
+            self.prototypes.weights.grad = None
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         self.normalize_prototypes()
@@ -149,7 +148,7 @@ class Sensemble(pl.LightningModule):
             self.val_avg_entropy_for_ood_data.update(entropies[ood_labels])
             self.val_avg_entropy_for_id_data.update(entropies[~ood_labels])
 
-        with eval_mode(self.encoder, enable_dropout=True), eval_mode(self.projector):
+        with eval_mode(self.encoder, enable_dropout=True), eval_mode(self.mlp):
             ensemble_probas = torch.stack([self.forward(images) for _ in range(len(views))])
             mean_entropies, expected_entropies, bald_scores = self.compute_ood_scores(ensemble_probas)
             self.val_auroc_mean_entropy.update(mean_entropies, ood_labels)
