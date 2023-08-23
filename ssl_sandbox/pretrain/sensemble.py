@@ -83,7 +83,7 @@ class Sensemble(pl.LightningModule):
 
     def to_logits(self, images):
         embeds = F.normalize(self.mlp(self.encoder(images)), dim=-1)
-        prototypes = F.normalize(prototypes, dim=-1)
+        prototypes = F.normalize(self.prototypes, dim=-1)
         return torch.matmul(embeds, prototypes.T) / self.temp
 
     def forward(self, images):
