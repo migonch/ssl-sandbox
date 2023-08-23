@@ -24,8 +24,8 @@ def parse_args():
     parser.add_argument('--drop_block_rate', type=float, default=0.1)
     parser.add_argument('--drop_path_rate', type=float, default=0.1)
 
-    parser.add_argument('--num_prototypes', type=int, default=2048)
-    parser.add_argument('--sinkhorn_queue_size', type=int, default=384 * 4 * 2)
+    parser.add_argument('--num_prototypes', type=int, default=3072)
+    parser.add_argument('--sinkhorn_queue_size', type=int, default=384 * 4 * 3)
 
     parser.add_argument('--batch_size', type=int, default=384)
     parser.add_argument('--num_workers', type=int, default=8)
