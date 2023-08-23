@@ -131,10 +131,10 @@ class Sensemble(pl.LightningModule):
 
         return loss
 
-    def on_after_backward(self):
-        if self.current_epoch == 0:
-            # freeze prototypes during first epoch
-            self.prototypes.weight.grad = None
+    # def on_after_backward(self):
+    #     if self.current_epoch == 0:
+    #         # freeze prototypes during first epoch
+    #         self.prototypes.weight.grad = None
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         self.normalize_prototypes()
