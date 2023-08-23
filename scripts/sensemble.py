@@ -19,13 +19,13 @@ def parse_args():
     parser.add_argument('--log_dir', required=True)
     parser.add_argument('--cifar10_dir')
 
-    parser.add_argument('--dropout_rate', type=float, default=0.5)
-    parser.add_argument('--drop_channel_rate', type=float, default=0.0)
-    parser.add_argument('--drop_block_rate', type=float, default=0.1)
+    parser.add_argument('--dropout_rate', type=float, default=0.0)
+    parser.add_argument('--drop_channel_rate', type=float, default=0.5)
+    parser.add_argument('--drop_block_rate', type=float, default=0.0)
     parser.add_argument('--drop_path_rate', type=float, default=0.1)
 
-    parser.add_argument('--num_prototypes', type=int, default=2048)
-    parser.add_argument('--sinkhorn_queue_size', type=int, default=2048)
+    parser.add_argument('--num_prototypes', type=int, default=1024)
+    parser.add_argument('--sinkhorn_queue_size', type=int, default=384 * 4)
 
     parser.add_argument('--batch_size', type=int, default=384)
     parser.add_argument('--num_workers', type=int, default=8)
@@ -73,8 +73,10 @@ def main(args):
         drop_channel_rate=args.drop_channel_rate,
         drop_block_rate=args.drop_block_rate,
         drop_path_rate=args.drop_path_rate,
+        prototype_dim=256,
         num_prototypes=args.num_prototypes,
         sinkhorn_queue_size=args.sinkhorn_queue_size,
+        memax_weight=1.0,
         lr=lr,
         weight_decay=args.weight_decay,
         warmup_epochs=args.warmup_epochs,

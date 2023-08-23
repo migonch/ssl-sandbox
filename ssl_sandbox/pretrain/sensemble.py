@@ -105,7 +105,8 @@ class Sensemble(pl.LightningModule):
             assert queue_size >= batch_size
 
             # update queue
-            self.sinkhorn_queue[batch_size:] = self.sinkhorn_queue[:-batch_size].clone()
+            if queue_size > batch_size:
+                self.sinkhorn_queue[batch_size:] = self.sinkhorn_queue[:-batch_size].clone()
             self.sinkhorn_queue[:batch_size] = targets
 
             if batch_size * (self.global_step + 1) >= queue_size:
