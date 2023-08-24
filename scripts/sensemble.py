@@ -10,7 +10,7 @@ from pytorch_lightning.strategies import DDPStrategy
 from ssl_sandbox.pretrain import Sensemble
 from ssl_sandbox.eval import OnlineProbing
 from ssl_sandbox.datamodules import CIFAR4vs6DataModule
-from ssl_sandbox.pretrain.transforms import SimCLRViews
+from ssl_sandbox.pretrain.transforms import SimCLRViews, SensembleTrainViews, SensembleInferenceViews
 
 
 def parse_args():
@@ -20,14 +20,14 @@ def parse_args():
     parser.add_argument('--cifar10_dir')
 
     parser.add_argument('--dropout_rate', type=float, default=0.5)
-    parser.add_argument('--drop_channel_rate', type=float, default=0.0)
-    parser.add_argument('--drop_block_rate', type=float, default=0.1)
+    parser.add_argument('--drop_channel_rate', type=float, default=0.5)
+    parser.add_argument('--drop_block_rate', type=float, default=0.0)
     parser.add_argument('--drop_path_rate', type=float, default=0.1)
 
-    parser.add_argument('--num_prototypes', type=int, default=3072)
-    parser.add_argument('--sinkhorn_queue_size', type=int, default=384 * 4 * 3)
+    parser.add_argument('--num_prototypes', type=int, default=2048)
+    parser.add_argument('--sinkhorn_queue_size', type=int, default=256 * 4 * 2)
 
-    parser.add_argument('--batch_size', type=int, default=384)
+    parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--num_workers', type=int, default=8)
 
     parser.add_argument('--base_lr', type=float, default=1e-2)
@@ -49,18 +49,17 @@ def main(args):
         normalize=True,
         batch_size=args.batch_size,
     )
-    image_size = 32
+    global_views_size = 32
+    local_views_size = 16
     blur = False
-    jitter_strength = 0.5
-    dm.train_transforms = SimCLRViews(
-        size=image_size,
-        jitter_strength=jitter_strength,
+    dm.train_transforms = SensembleTrainViews(
+        global_views_size=global_views_size,
+        local_views_size=local_views_size,
         blur=blur,
         final_transforms=dm.default_transforms()
     )
-    dm.val_transforms = SimCLRViews(
-        size=image_size,
-        jitter_strength=jitter_strength,
+    dm.val_transforms = SensembleInferenceViews(
+        size=global_views_size,
         blur=blur,
         final_transforms=dm.default_transforms(),
         views_number=10

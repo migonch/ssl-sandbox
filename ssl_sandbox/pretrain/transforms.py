@@ -125,6 +125,9 @@ class MultiCrop:
             local_views_number: int = 6,
             final_transforms: Optional[Callable] = None
     ) -> None:
+        if final_transforms is None:
+            final_transforms = T.ToTensor()
+
         self.first_global_view = RandomView(
             global_views_size, global_views_scale,
             **BYOL_COLOR_JITTER_PARAMS, blur_p=1.0,
@@ -140,10 +143,12 @@ class MultiCrop:
             **BYOL_COLOR_JITTER_PARAMS, blur_p=0.5,
             final_transforms=final_transforms
         )
+        self.final_transforms = final_transforms
         self.local_views_number = local_views_number
 
     def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
         return (
+            self.final_transforms(image),
             self.first_global_view(image),
             self.second_global_view(image),
             *[self.random_local_view(image) for _ in range(self.local_views_number)]
@@ -161,6 +166,9 @@ class SensembleTrainViews:
             local_views_number: int = 4,
             final_transforms: Optional[Callable] = None
     ) -> None:
+        if final_transforms is None:
+            final_transforms = T.ToTensor()
+
         self.first_global_view = RandomView(
             global_views_size,
             global_views_scale,
@@ -183,13 +191,15 @@ class SensembleTrainViews:
             blur_p=(0.5 if blur else 0.0),
             final_transforms=final_transforms
         )
+        self.final_transforms = final_transforms
         self.local_views_number = local_views_number
 
     def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
         return (
+            self.final_transforms(image),
             self.first_global_view(image),
             self.second_global_view(image),
-            *[self.random_local_view(image) for _ in range(self.local_views_number)]
+            *[self.local_view(image) for _ in range(self.local_views_number)]
         )
 
 
