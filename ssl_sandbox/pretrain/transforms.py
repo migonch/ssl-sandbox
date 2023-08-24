@@ -158,48 +158,37 @@ class MultiCrop:
 class SensembleTrainViews:
     def __init__(
             self,
-            global_views_size: int,
-            local_views_size: int,
-            global_views_scale: Tuple[float, float] = (0.3, 1.0),
-            local_views_scale: Tuple[float, float] = (0.08, 0.3),
+            size: int,
+            student_view_scale: Tuple[float, float] = (0.08, 1.0),
+            teacher_view_scale: Tuple[float, float] = (0.3, 1.0),
             blur: bool = True,
-            local_views_number: int = 4,
             final_transforms: Optional[Callable] = None
     ) -> None:
         if final_transforms is None:
             final_transforms = T.ToTensor()
 
-        self.first_global_view = RandomView(
-            global_views_size,
-            global_views_scale,
-            **BYOL_COLOR_JITTER_PARAMS,
-            blur_p=(1.0 if blur else 0.0),
-            final_transforms=final_transforms
-        )
-        self.second_global_view = RandomView(
-            global_views_size,
-            global_views_scale,
-            **BYOL_COLOR_JITTER_PARAMS,
-            blur_p=(0.1 if blur else 0.0),
-            solarization_p=0.2,
-            final_transforms=final_transforms
-        )
-        self.local_view = RandomView(
-            local_views_size,
-            local_views_scale,
+        self.student_view = RandomView(
+            size,
+            student_view_scale,
             **BYOL_COLOR_JITTER_PARAMS,
             blur_p=(0.5 if blur else 0.0),
             final_transforms=final_transforms
         )
+        self.teacher_view = RandomView(
+            size,
+            teacher_view_scale,
+            **BYOL_COLOR_JITTER_PARAMS,
+            grayscale_p=0.0,
+            blur_p=0.0,
+            final_transforms=final_transforms
+        )
         self.final_transforms = final_transforms
-        self.local_views_number = local_views_number
 
     def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
         return (
             self.final_transforms(image),
-            self.first_global_view(image),
-            self.second_global_view(image),
-            *[self.local_view(image) for _ in range(self.local_views_number)]
+            self.student_view(image),
+            self.teacher_view(image)
         )
 
 
