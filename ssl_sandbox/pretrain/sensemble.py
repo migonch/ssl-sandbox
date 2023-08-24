@@ -9,7 +9,7 @@ import pytorch_lightning as pl
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 from torchmetrics import AUROC, MeanMetric
 
-from ssl_sandbox.nn.resnet import resnet50, adapt_to_cifar10
+from ssl_sandbox.nn.resnet import resnet18, resnet50, adapt_to_cifar10
 from ssl_sandbox.nn.blocks import MLP
 from ssl_sandbox.nn.functional import entropy, eval_mode
 
@@ -17,8 +17,8 @@ from ssl_sandbox.nn.functional import entropy, eval_mode
 class Sensemble(pl.LightningModule):
     def __init__(
             self,
-            encoder_architeture: Literal['resnet50', 'resnet50_cifar10'],
-            dropout_rate: float = 0.5,
+            encoder_architeture: Literal['resnet18', 'resnet18_cifar10', 'resnet50', 'resnet50_cifar10'],
+            dropout_rate: float = 0.0,
             drop_channel_rate: float = 0.5,
             drop_block_rate: float = 0.0,
             drop_path_rate: float = 0.1,
@@ -36,18 +36,24 @@ class Sensemble(pl.LightningModule):
     ):
         super().__init__()
 
-        if encoder_architeture in ['resnet50', 'resnet50_cifar10']:
-            encoder = resnet50(
-                drop_channel_rate=drop_channel_rate,
-                drop_block_rate=drop_block_rate,
-                drop_path_rate=drop_path_rate
-            )
+        dropout_params = dict(
+            drop_channel_rate=drop_channel_rate,
+            drop_block_rate=drop_block_rate,
+            drop_path_rate=drop_path_rate
+        )
+        if encoder_architeture in ['resnet18', 'resnet18_cifar10']:
+            encoder = resnet18(**dropout_params)
+            encoder.fc = nn.Identity()
+            embed_dim = 512
+        elif encoder_architeture in ['resnet50', 'resnet50_cifar10']:
+            encoder = resnet50(**dropout_params)
             encoder.fc = nn.Identity()
             embed_dim = 2048
-            if encoder_architeture == 'resnet50_cifar10':
-                encoder = adapt_to_cifar10(encoder)
         else:
             raise ValueError(f'``encoder={encoder}`` is not supported')
+
+        if encoder_architeture in ['resnet18_cifar10', 'resnet50_cifar10']:
+            encoder = adapt_to_cifar10(encoder)
 
         self.encoder = encoder
         self.embed_dim = embed_dim

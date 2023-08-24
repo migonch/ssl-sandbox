@@ -98,6 +98,17 @@ class Bottleneck(_Bottleneck):
         return x
 
 
+def resnet18(dropout_rate=0.0, drop_channel_rate=0.0, **kwargs) -> ResNet:
+    """Constructs a ResNet-18 model.
+    """
+    if 'block_args' in kwargs:
+        kwargs['block_args'].update(dropout_rate=dropout_rate, drop_channel_rate=drop_channel_rate)
+    else:
+        kwargs['block_args'] = dict(dropout_rate=dropout_rate, drop_channel_rate=drop_channel_rate)
+
+    return _create_resnet('resnet18', block=Bottleneck, layers=[2, 2, 2, 2], **kwargs)
+
+
 def resnet50(dropout_rate=0.0, drop_channel_rate=0.0, **kwargs) -> ResNet:
     """Constructs a ResNet-50 model.
     """

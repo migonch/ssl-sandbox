@@ -19,7 +19,8 @@ def parse_args():
     parser.add_argument('--log_dir', required=True)
     parser.add_argument('--cifar10_dir')
 
-    parser.add_argument('--dropout_rate', type=float, default=0.5)
+    parser.add_argument('--encoder_architecture', default='resnet18_cifar10')
+    parser.add_argument('--dropout_rate', type=float, default=0.0)
     parser.add_argument('--drop_channel_rate', type=float, default=0.5)
     parser.add_argument('--drop_block_rate', type=float, default=0.0)
     parser.add_argument('--drop_path_rate', type=float, default=0.1)
@@ -64,7 +65,7 @@ def main(args):
 
     lr = args.base_lr * args.batch_size * torch.cuda.device_count() / 256
     model = Sensemble(
-        encoder_architeture='resnet50_cifar10',
+        encoder_architeture=args.encoder_architecture,
         dropout_rate=args.dropout_rate,
         drop_channel_rate=args.drop_channel_rate,
         drop_block_rate=args.drop_block_rate,
