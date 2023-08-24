@@ -106,7 +106,7 @@ def resnet18(dropout_rate=0.0, drop_channel_rate=0.0, **kwargs) -> ResNet:
     else:
         kwargs['block_args'] = dict(dropout_rate=dropout_rate, drop_channel_rate=drop_channel_rate)
 
-    return _create_resnet('resnet18', block=Bottleneck, layers=[2, 2, 2, 2], **kwargs)
+    return _create_resnet('resnet18', block=BasicBlock, layers=[2, 2, 2, 2], **kwargs)
 
 
 def resnet50(dropout_rate=0.0, drop_channel_rate=0.0, **kwargs) -> ResNet:
