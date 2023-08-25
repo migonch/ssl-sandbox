@@ -10,7 +10,7 @@ from pytorch_lightning.strategies import DDPStrategy
 from ssl_sandbox.pretrain import Sensemble
 from ssl_sandbox.eval import OnlineProbing
 from ssl_sandbox.datamodules import CIFAR4vs6DataModule
-from ssl_sandbox.pretrain.transforms import SensembleTrainViews, SensembleInferenceViews
+from ssl_sandbox.pretrain.transforms import SimCLRViews
 
 
 def parse_args():
@@ -19,16 +19,16 @@ def parse_args():
     parser.add_argument('--log_dir', required=True)
     parser.add_argument('--cifar10_dir')
 
-    parser.add_argument('--encoder_architecture', default='resnet18_cifar10')
-    parser.add_argument('--dropout_rate', type=float, default=0.0)
+    parser.add_argument('--encoder_architecture', default='resnet50_cifar10')
+    parser.add_argument('--dropout_rate', type=float, default=0.5)
     parser.add_argument('--drop_channel_rate', type=float, default=0.5)
     parser.add_argument('--drop_block_rate', type=float, default=0.0)
     parser.add_argument('--drop_path_rate', type=float, default=0.1)
 
     parser.add_argument('--num_prototypes', type=int, default=2048)
-    parser.add_argument('--sinkhorn_queue_size', type=int, default=4096)
+    parser.add_argument('--sinkhorn_queue_size', type=int, default=3072)
 
-    parser.add_argument('--batch_size', type=int, default=1024)
+    parser.add_argument('--batch_size', type=int, default=384)
     parser.add_argument('--num_workers', type=int, default=8)
 
     parser.add_argument('--base_lr', type=float, default=1e-2)
@@ -51,16 +51,20 @@ def main(args):
         batch_size=args.batch_size,
     )
     image_size = 32
+    jitter_strength = 0.5
     blur = False
-    dm.train_transforms = SensembleTrainViews(
+    dm.train_transforms = SimCLRViews(
         size=image_size,
+        jitter_strength=jitter_strength,
         blur=blur,
         final_transforms=dm.default_transforms()
     )
-    dm.val_transforms = SensembleInferenceViews(
+    dm.val_transforms = SimCLRViews(
         size=image_size,
+        jitter_strength=jitter_strength,
         blur=blur,
-        final_transforms=dm.default_transforms()
+        final_transforms=dm.default_transforms(),
+        views_number=10
     )
 
     lr = args.base_lr * args.batch_size * torch.cuda.device_count() / 256

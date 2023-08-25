@@ -8,6 +8,11 @@ def entropy(p: torch.Tensor, dim: int) -> torch.Tensor:
     return torch.sum(torch.log(p ** (-p)), dim=dim)
 
 
+def generalized_entropy(p: torch.Tensor, dim: int, M: int = 100, gamma: float = 0.1) -> torch.Tensor:
+    p = torch.topk(p, k=M, dim=dim).values
+    return torch.sum(p ** gamma * (1 - p) ** gamma, dim=dim)
+
+
 def off_diagonal(x: torch.Tensor) -> torch.Tensor:
     n, m = x.shape
     assert n == m

@@ -7,18 +7,18 @@ import torch.nn.functional as F
 
 import pytorch_lightning as pl
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
-from torchmetrics import AUROC, MeanMetric
+from torchmetrics import AUROC
 
 from ssl_sandbox.nn.resnet import resnet18, resnet50, adapt_to_cifar10
 from ssl_sandbox.nn.blocks import MLP
-from ssl_sandbox.nn.functional import entropy, eval_mode
+from ssl_sandbox.nn.functional import entropy, generalized_entropy, eval_mode
 
 
 class Sensemble(pl.LightningModule):
     def __init__(
             self,
             encoder_architeture: Literal['resnet18', 'resnet18_cifar10', 'resnet50', 'resnet50_cifar10'],
-            dropout_rate: float = 0.0,
+            dropout_rate: float = 0.5,
             drop_channel_rate: float = 0.5,
             drop_block_rate: float = 0.0,
             drop_path_rate: float = 0.1,
@@ -27,7 +27,7 @@ class Sensemble(pl.LightningModule):
             temp: float = 0.1,
             sharpen_temp: float = 0.25,
             num_sinkhorn_iters: int = 3,
-            sinkhorn_queue_size: int = 2048,
+            sinkhorn_queue_size: int = 3072,
             memax_weight: float = 1.0,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
@@ -71,18 +71,16 @@ class Sensemble(pl.LightningModule):
         self.weight_decay = weight_decay
         self.warmup_epochs = warmup_epochs
 
-        self.val_auroc_entropy = AUROC('binary')
-        self.val_avg_entropy_for_ood_data = MeanMetric()
-        self.val_avg_entropy_for_id_data = MeanMetric()
-        self.val_auroc_mean_entropy = AUROC('binary')
-        self.val_auroc_expected_entropy = AUROC('binary')
-        self.val_auroc_bald_score = AUROC('binary')
-        self.val_auroc_mean_entropy_on_views = AUROC('binary')
-        self.val_auroc_expected_entropy_on_views = AUROC('binary')
-        self.val_auroc_bald_score_on_views = AUROC('binary')
+        self.ood_scores = [
+            'msp', 'maxlogit', 'energy', 'entropy', 'gen',
+            'mean_msp', 'mean_entropy', 'mean_gen', 'expected_entropy', 'bald_score',
+            'mean_msp_on_views', 'mean_entropy_on_views', 'mean_gen_on_views',
+            'expected_entropy_on_views', 'bald_score_on_views'
+        ]
+        self.val_metrics = nn.ModuleDict({k: AUROC('binary') for k in self.ood_scores})
 
         self.save_hyperparameters()
-    
+
     def on_fit_start(self) -> None:
         queue_size = self.sinkhorn_queue_size // self.trainer.world_size
         self.sinkhorn_queue = torch.zeros(queue_size, self.num_prototypes, device=self.device)
@@ -91,9 +89,6 @@ class Sensemble(pl.LightningModule):
         embeds = F.normalize(self.mlp(self.encoder(images)), dim=-1)
         prototypes = F.normalize(self.prototypes, dim=-1)
         return torch.matmul(embeds, prototypes.T) / self.temp
-
-    def forward(self, images):
-        return torch.softmax(self.to_logits(images), dim=-1)
 
     def training_step(self, batch, batch_idx):
         (_, student_views, teacher_views), _ = batch
@@ -139,45 +134,38 @@ class Sensemble(pl.LightningModule):
         (images, *views), labels = batch
         ood_labels = labels == -1
 
+        ood_scores = {}
         with eval_mode(self):
-            entropies = entropy(self.forward(images), dim=-1)
-            self.val_auroc_entropy.update(entropies, ood_labels)
-            self.val_avg_entropy_for_ood_data.update(entropies[ood_labels])
-            self.val_avg_entropy_for_id_data.update(entropies[~ood_labels])
+            logits = self.to_logits(images)
+            probas = torch.softmax(logits, dim=-1)
+            ood_scores['msp'] = -probas.max(dim=-1)
+            ood_scores['maxlogit'] = -logits.max(dim=-1)
+            ood_scores['energy'] = -torch.logsumexp(logits, dim=-1)
+            ood_scores['entropy'] = entropy(probas, dim=-1)
+            ood_scores['gen'] = generalized_entropy(probas, dim=-1)
 
         with eval_mode(self, enable_dropout=True):
-            ensemble_probas = torch.stack([self.forward(images) for _ in range(len(views))])
-            mean_entropies, expected_entropies, bald_scores = self.compute_ood_scores(ensemble_probas)
-            self.val_auroc_mean_entropy.update(mean_entropies, ood_labels)
-            self.val_auroc_expected_entropy.update(expected_entropies, ood_labels)
-            self.val_auroc_bald_score.update(bald_scores, ood_labels)
+            ensemble_probas = torch.stack([torch.softmax(self.to_logits(images), dim=-1) for _ in range(len(views))])
+            (ood_scores['mean_msp'],
+             ood_scores['mean_entropies'],
+             ood_scores['mean_gen'],
+             ood_scores['expected_entropies'],
+             ood_scores['bald_scores']) = self.compute_ood_scores(ensemble_probas)
 
             ensemble_probas = torch.stack([self.forward(v) for v in views])
-            mean_entropies_on_views, expected_entropies_on_views, bald_scores_on_views = \
-                self.compute_ood_scores(ensemble_probas)
-            self.val_auroc_mean_entropy_on_views.update(mean_entropies_on_views, ood_labels)
-            self.val_auroc_expected_entropy_on_views.update(expected_entropies_on_views, ood_labels)
-            self.val_auroc_bald_score_on_views.update(bald_scores_on_views, ood_labels)
+            (ood_scores['mean_msp_on_views'],
+             ood_scores['mean_entropies_on_views'],
+             ood_scores['mean_gen_on_views'],
+             ood_scores['expected_entropies_on_views'],
+             ood_scores['bald_scores_on_views']) = self.compute_ood_scores(ensemble_probas)
+
+        for k in self.ood_scores:
+            self.val_metrics[k].update(ood_scores[k], ood_labels)
 
     def on_validation_epoch_end(self):
-        self.log(f'val/ood_auroc_entropy', self.val_auroc_entropy.compute(), sync_dist=True)
-        self.val_auroc_entropy.reset()
-        self.log(f'val/avg_entropy_for_ood_data', self.val_avg_entropy_for_ood_data.compute(), sync_dist=True)
-        self.val_avg_entropy_for_ood_data.reset()
-        self.log(f'val/avg_entropy_for_id_data', self.val_avg_entropy_for_id_data.compute(), sync_dist=True)
-        self.val_avg_entropy_for_id_data.reset()
-        self.log(f'val/ood_auroc_mean_entropy', self.val_auroc_mean_entropy.compute(), sync_dist=True)
-        self.val_auroc_mean_entropy.reset()
-        self.log(f'val/ood_auroc_expected_entropy', self.val_auroc_expected_entropy.compute(), sync_dist=True)
-        self.val_auroc_expected_entropy.reset()
-        self.log(f'val/ood_auroc_bald_score', self.val_auroc_bald_score.compute(), sync_dist=True)
-        self.val_auroc_bald_score.reset()
-        self.log(f'val/ood_auroc_mean_entropy_on_views', self.val_auroc_mean_entropy_on_views.compute(), sync_dist=True)
-        self.val_auroc_mean_entropy_on_views.reset()
-        self.log(f'val/ood_auroc_expected_entropy_on_views', self.val_auroc_expected_entropy_on_views.compute(), sync_dist=True)
-        self.val_auroc_expected_entropy_on_views.reset()
-        self.log(f'val/ood_auroc_bald_score_on_views', self.val_auroc_bald_score_on_views.compute(), sync_dist=True)
-        self.val_auroc_bald_score_on_views.reset()
+        for k in self.ood_scores:
+            self.log(f'val/ood_auroc_{k}', self.val_metrics[k].compute(), sync_dist=True)
+            self.val_metrics[k].reset()
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
@@ -205,7 +193,10 @@ class Sensemble(pl.LightningModule):
 
     @staticmethod
     def compute_ood_scores(ensemble_probas: torch.Tensor) -> torch.Tensor:
-        mean_entropies = entropy(ensemble_probas.mean(dim=0), dim=-1)
+        mean_probas = ensemble_probas.mean(dim=0)
+        mean_msp = mean_probas.max(dim=-1)
+        mean_entropies = entropy(mean_probas, dim=-1)
+        mean_gen = generalized_entropy(mean_probas, dim=-1)
         expected_entropies = entropy(ensemble_probas, dim=-1).mean(dim=0)
         bald_scores = mean_entropies - expected_entropies
-        return mean_entropies, expected_entropies, bald_scores
+        return mean_msp, mean_entropies, mean_gen, expected_entropies, bald_scores
