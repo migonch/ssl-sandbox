@@ -152,7 +152,7 @@ class Sensemble(pl.LightningModule):
              ood_scores['expected_entropies'],
              ood_scores['bald_scores']) = self.compute_ood_scores(ensemble_probas)
 
-            ensemble_probas = torch.stack([self.forward(v) for v in views])
+            ensemble_probas = torch.stack([torch.softmax(self.to_logits(v), dim=-1) for v in views])
             (ood_scores['mean_msp_on_views'],
              ood_scores['mean_entropies_on_views'],
              ood_scores['mean_gen_on_views'],
