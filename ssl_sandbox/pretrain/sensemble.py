@@ -147,17 +147,17 @@ class Sensemble(pl.LightningModule):
         with eval_mode(self, enable_dropout=True):
             ensemble_probas = torch.stack([torch.softmax(self.to_logits(images), dim=-1) for _ in range(len(views))])
             (ood_scores['mean_msp'],
-             ood_scores['mean_entropies'],
+             ood_scores['mean_entropy'],
              ood_scores['mean_gen'],
-             ood_scores['expected_entropies'],
-             ood_scores['bald_scores']) = self.compute_ood_scores(ensemble_probas)
+             ood_scores['expected_entropy'],
+             ood_scores['bald_score']) = self.compute_ood_scores(ensemble_probas)
 
             ensemble_probas = torch.stack([torch.softmax(self.to_logits(v), dim=-1) for v in views])
             (ood_scores['mean_msp_on_views'],
-             ood_scores['mean_entropies_on_views'],
+             ood_scores['mean_entropy_on_views'],
              ood_scores['mean_gen_on_views'],
-             ood_scores['expected_entropies_on_views'],
-             ood_scores['bald_scores_on_views']) = self.compute_ood_scores(ensemble_probas)
+             ood_scores['expected_entropy_on_views'],
+             ood_scores['bald_score_on_views']) = self.compute_ood_scores(ensemble_probas)
 
         for k in self.ood_scores:
             self.val_metrics[k].update(ood_scores[k], ood_labels)
