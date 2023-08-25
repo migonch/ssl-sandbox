@@ -138,8 +138,8 @@ class Sensemble(pl.LightningModule):
         with eval_mode(self):
             logits = self.to_logits(images)
             probas = torch.softmax(logits, dim=-1)
-            ood_scores['msp'] = -probas.max(dim=-1)
-            ood_scores['maxlogit'] = -logits.max(dim=-1)
+            ood_scores['msp'] = -probas.max(dim=-1).values
+            ood_scores['maxlogit'] = -logits.max(dim=-1).values
             ood_scores['energy'] = -torch.logsumexp(logits, dim=-1)
             ood_scores['entropy'] = entropy(probas, dim=-1)
             ood_scores['gen'] = generalized_entropy(probas, dim=-1)
@@ -194,7 +194,7 @@ class Sensemble(pl.LightningModule):
     @staticmethod
     def compute_ood_scores(ensemble_probas: torch.Tensor) -> torch.Tensor:
         mean_probas = ensemble_probas.mean(dim=0)
-        mean_msp = mean_probas.max(dim=-1)
+        mean_msp = mean_probas.max(dim=-1).values
         mean_entropies = entropy(mean_probas, dim=-1)
         mean_gen = generalized_entropy(mean_probas, dim=-1)
         expected_entropies = entropy(ensemble_probas, dim=-1).mean(dim=0)
