@@ -11,7 +11,7 @@ from torchmetrics import AUROC, MeanMetric
 
 from ssl_sandbox.nn.resnet import resnet18, resnet50, adapt_to_cifar10
 from ssl_sandbox.nn.blocks import MLP
-from ssl_sandbox.nn.functional import entropy, generalized_entropy, eval_mode
+from ssl_sandbox.nn.functional import entropy, eval_mode
 
 
 class Sensemble(pl.LightningModule):
@@ -72,9 +72,9 @@ class Sensemble(pl.LightningModule):
         self.warmup_epochs = warmup_epochs
 
         self.ood_scores = [
-            'msp', 'maxlogit', 'energy', 'entropy', 'gen',
-            'mean_msp', 'mean_entropy', 'mean_gen', 'expected_entropy', 'bald_score',
-            'mean_msp_on_views', 'mean_entropy_on_views', 'mean_gen_on_views',
+            'msp', 'maxlogit', 'energy', 'entropy', 'truncated_entropy',
+            'mean_msp', 'mean_entropy', 'mean_truncated_entropy', 'expected_entropy', 'bald_score',
+            'mean_msp_on_views', 'mean_entropy_on_views', 'mean_truncated_entropy_on_views',
             'expected_entropy_on_views', 'bald_score_on_views'
         ]
         self.val_metrics = nn.ModuleDict()
@@ -148,20 +148,20 @@ class Sensemble(pl.LightningModule):
             ood_scores['maxlogit'] = -logits.max(dim=-1).values
             ood_scores['energy'] = -torch.logsumexp(logits, dim=-1)
             ood_scores['entropy'] = entropy(probas, dim=-1)
-            ood_scores['gen'] = generalized_entropy(probas, dim=-1)
+            ood_scores['truncated_entropy'] = entropy(probas, dim=-1, truncate=100)
 
         with eval_mode(self, enable_dropout=True):
             ensemble_probas = torch.stack([torch.softmax(self.to_logits(images), dim=-1) for _ in range(len(views))])
             (ood_scores['mean_msp'],
              ood_scores['mean_entropy'],
-             ood_scores['mean_gen'],
+             ood_scores['mean_truncated_entropy'],
              ood_scores['expected_entropy'],
              ood_scores['bald_score']) = self.compute_ood_scores(ensemble_probas)
 
             ensemble_probas = torch.stack([torch.softmax(self.to_logits(v), dim=-1) for v in views])
             (ood_scores['mean_msp_on_views'],
              ood_scores['mean_entropy_on_views'],
-             ood_scores['mean_gen_on_views'],
+             ood_scores['mean_truncated_entropy_on_views'],
              ood_scores['expected_entropy_on_views'],
              ood_scores['bald_score_on_views']) = self.compute_ood_scores(ensemble_probas)
 
@@ -204,7 +204,7 @@ class Sensemble(pl.LightningModule):
         mean_probas = ensemble_probas.mean(dim=0)
         mean_msp = -mean_probas.max(dim=-1).values
         mean_entropies = entropy(mean_probas, dim=-1)
-        mean_gen = generalized_entropy(mean_probas, dim=-1)
+        mean_truncated_entropy = entropy(mean_probas, dim=-1, truncate=100)
         expected_entropies = entropy(ensemble_probas, dim=-1).mean(dim=0)
         bald_scores = mean_entropies - expected_entropies
-        return mean_msp, mean_entropies, mean_gen, expected_entropies, bald_scores
+        return mean_msp, mean_entropies, mean_truncated_entropy, expected_entropies, bald_scores
