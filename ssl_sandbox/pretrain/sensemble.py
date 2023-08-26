@@ -194,7 +194,7 @@ class Sensemble(pl.LightningModule):
     @staticmethod
     def compute_ood_scores(ensemble_probas: torch.Tensor) -> torch.Tensor:
         mean_probas = ensemble_probas.mean(dim=0)
-        mean_msp = mean_probas.max(dim=-1).values
+        mean_msp = -mean_probas.max(dim=-1).values
         mean_entropies = entropy(mean_probas, dim=-1)
         mean_gen = generalized_entropy(mean_probas, dim=-1)
         expected_entropies = entropy(ensemble_probas, dim=-1).mean(dim=0)
