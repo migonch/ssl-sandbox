@@ -7,7 +7,7 @@ import torch.nn.functional as F
 
 import pytorch_lightning as pl
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
-from torchmetrics import AUROC
+from torchmetrics import AUROC, MeanMetric
 
 from ssl_sandbox.nn.resnet import resnet18, resnet50, adapt_to_cifar10
 from ssl_sandbox.nn.blocks import MLP
@@ -77,7 +77,13 @@ class Sensemble(pl.LightningModule):
             'mean_msp_on_views', 'mean_entropy_on_views', 'mean_gen_on_views',
             'expected_entropy_on_views', 'bald_score_on_views'
         ]
-        self.val_metrics = nn.ModuleDict({k: AUROC('binary') for k in self.ood_scores})
+        self.val_metrics = nn.ModuleDict()
+        for k in self.ood_scores:
+            self.val_metrics.update({
+                f'ood_auroc_{k}': AUROC('binary'),
+                f'avg_{k}_for_id_data': MeanMetric(),
+                f'avg_{k}_for_ood_data': MeanMetric(),
+            })
 
         self.save_hyperparameters()
 
@@ -160,12 +166,14 @@ class Sensemble(pl.LightningModule):
              ood_scores['bald_score_on_views']) = self.compute_ood_scores(ensemble_probas)
 
         for k in self.ood_scores:
-            self.val_metrics[k].update(ood_scores[k], ood_labels)
+            self.val_metrics[f'ood_auroc_{k}'].update(ood_scores[k], ood_labels)
+            self.val_metrics[f'avg_{k}_for_id_data'].update(ood_scores[k][~ood_labels])
+            self.val_metrics[f'avg_{k}_for_ood_data'].update(ood_scores[k][ood_labels])
 
     def on_validation_epoch_end(self):
-        for k in self.ood_scores:
-            self.log(f'val/ood_auroc_{k}', self.val_metrics[k].compute(), sync_dist=True)
-            self.val_metrics[k].reset()
+        for k, v in self.val_metrics.items():
+            self.log(f'val/{k}', v.compute(), sync_dist=True)
+            v.reset()
 
     def configure_optimizers(self):
         optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
