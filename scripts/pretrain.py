@@ -11,13 +11,11 @@ from pl_bolts.datamodules import CIFAR10DataModule
 
 from ssl_sandbox.nn.resnet import resnet50, adapt_to_cifar10
 from ssl_sandbox.pretrain import (
-    SimCLR, BarlowTwins, BarlowTwinsOODDetection, VICReg, VICRegOODDetection, Sensemble
+    SimCLR, BarlowTwins, BarlowTwinsOODDetection, VICReg, VICRegOODDetection
 )
 from ssl_sandbox.eval import OnlineProbing
 from ssl_sandbox.datamodules import CIFAR4vs6DataModule
-from ssl_sandbox.pretrain.transforms import (
-    SimCLRViews, SensembleTrainViews, SensembleInferenceViews
-)
+from ssl_sandbox.pretrain.transforms import SimCLRViews
 
 
 def parse_args():
@@ -38,10 +36,6 @@ def parse_args():
     parser.add_argument('--barlow_twins_proj_dim', type=int, default=8192)
     parser.add_argument('--vicreg_proj_dim', type=int, default=8192)
     parser.add_argument('--vicreg_i_weight', type=float, default=25.0)
-    parser.add_argument('--sensemble_num_prototypes', type=int, default=1024)
-    parser.add_argument('--sensemble_memax_weight', type=float, default=1.0)
-    parser.add_argument('--sensemble_num_sinkhorn_iters', type=int, default=3)
-    parser.add_argument('--sensemble_ema', default=False, action='store_true')
 
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--num_workers', type=int, default=8)
@@ -66,17 +60,6 @@ def main(args):
                 num_workers=args.num_workers,
                 normalize=True,
                 batch_size=args.batch_size
-            )
-            image_size = 32
-            blur = False
-            jitter_strength = 0.5
-        case 'cifar4vs6':
-            dm = CIFAR4vs6DataModule(
-                data_dir=args.cifar10_dir,
-                val_split=1000,
-                num_workers=args.num_workers,
-                normalize=True,
-                batch_size=args.batch_size,
             )
             image_size = 32
             blur = False
@@ -153,17 +136,6 @@ def main(args):
                 **optimizer_kwargs,
                 **hparams
             )
-        case 'sensemble':
-            model = Sensemble(
-                encoder,
-                embed_dim,
-                num_prototypes=args.sensemble_num_prototypes,
-                memax_weight=args.sensemble_memax_weight,
-                num_sinkhorn_iters=args.sensemble_num_sinkhorn_iters,
-                ema=args.sensemble_ema,
-                **optimizer_kwargs,
-                **hparams
-            )
         case _:
             raise ValueError(args.method)
 
@@ -172,14 +144,6 @@ def main(args):
         LearningRateMonitor(),
         DeviceStatsMonitor(),
     ]
-    if args.method == 'barlow_twins':
-        callbacks.append(BarlowTwinsOODDetection())
-    if args.method == 'vicreg':
-        callbacks.append(VICRegOODDetection())
-    if args.method == 'sensemble':
-        callbacks.append(
-            ModelCheckpoint(save_top_k=1, monitor='val/ood_auroc_mean_entropy_on_views', filename='best', mode='max')
-        )
 
     logger = TensorBoardLogger(
         save_dir=args.log_dir,
