@@ -7,7 +7,7 @@ import pytorch_lightning as pl
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 from torchmetrics import AUROC, MeanMetric
 
-from ssl_sandbox.nn.resnet import resnet50, adapt_to_cifar10
+from ssl_sandbox.nn.encoder import encoder, EncoderArchitecture
 from ssl_sandbox.nn.blocks import MLP
 from ssl_sandbox.nn.functional import off_diagonal, eval_mode
 
@@ -15,7 +15,7 @@ from ssl_sandbox.nn.functional import off_diagonal, eval_mode
 class BarlowTwins(pl.LightningModule):
     def __init__(
             self,
-            encoder_architeture: Literal['resnet50', 'resnet50_cifar10'],
+            encoder_architecture: EncoderArchitecture,
             dropout_rate: float = 0.5,
             drop_channel_rate: float = 0.5,
             drop_block_rate: float = 0.0,
@@ -29,23 +29,15 @@ class BarlowTwins(pl.LightningModule):
     ):
         super().__init__()
 
-        if encoder_architeture in ['resnet50', 'resnet50_cifar10']:
-            encoder = resnet50(
-                drop_channel_rate=drop_channel_rate,
-                drop_block_rate=drop_block_rate,
-                drop_path_rate=drop_path_rate
-            )
-            encoder.fc = nn.Identity()
-            embed_dim = 2048
-            if encoder_architeture == 'resnet50_cifar10':
-                encoder = adapt_to_cifar10(encoder)
-        else:
-            raise ValueError(f'``encoder={encoder}`` is not supported')
-
-        self.encoder = encoder
-        self.embed_dim = embed_dim
+        self.encoder, self.embed_dim = encoder(
+            architecture=encoder_architecture,
+            drop_channel_rate=drop_channel_rate,
+            drop_block_rate=drop_block_rate,
+            drop_path_rate=drop_path_rate
+        )
         self.projector = nn.Sequential(
-            MLP(embed_dim, proj_dim, proj_dim, num_hidden_layers=2, dropout_rate=dropout_rate, bias=False),
+            MLP(self.embed_dim, proj_dim, proj_dim, num_hidden_layers=2,
+                dropout_rate=dropout_rate, bias=False),
             nn.BatchNorm1d(proj_dim, affine=False)
         )
 

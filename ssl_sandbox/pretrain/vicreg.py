@@ -1,6 +1,4 @@
 from typing import Any
-import numpy as np
-from sklearn.metrics import roc_auc_score
 
 import torch
 import torch.nn as nn
@@ -10,6 +8,7 @@ from torchmetrics import AUROC
 import pytorch_lightning as pl
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 
+from ssl_sandbox.nn.encoder import encoder, EncoderArchitecture
 from ssl_sandbox.nn.blocks import MLP
 from ssl_sandbox.nn.functional import off_diagonal, eval_mode
 
@@ -17,8 +16,11 @@ from ssl_sandbox.nn.functional import off_diagonal, eval_mode
 class VICReg(pl.LightningModule):
     def __init__(
             self,
-            encoder: nn.Module,
-            embed_dim: int,
+            encoder_architecture: EncoderArchitecture,
+            dropout_rate: float = 0.5,
+            drop_channel_rate: float = 0.5,
+            drop_block_rate: float = 0.0,
+            drop_path_rate: float = 0.1,
             proj_dim: int = 8192,
             i_weight: float = 25.0,
             v_weight: float = 25.0,
@@ -31,8 +33,14 @@ class VICReg(pl.LightningModule):
 
         self.save_hyperparameters(ignore='encoder')
 
-        self.encoder = encoder
-        self.projector = MLP(embed_dim, proj_dim, proj_dim, num_hidden_layers=2, bias=False)
+        self.encoder, self.embed_dim = encoder(
+            architecture=encoder_architecture,
+            drop_channel_rate=drop_channel_rate,
+            drop_block_rate=drop_block_rate,
+            drop_path_rate=drop_path_rate
+        )
+        self.projector = MLP(self.embed_dim, proj_dim, proj_dim, num_hidden_layers=2,
+                             dropout_rate=dropout_rate, bias=False)
 
         self.i_weight = i_weight
         self.v_weight = v_weight
@@ -82,28 +90,3 @@ class VICReg(pl.LightningModule):
             optimizer, warmup_epochs=self.warmup_epochs, max_epochs=self.trainer.max_epochs
         )
         return {'optimizer': optimizer, 'lr_scheduler': scheduler}
-
-
-class VICRegOODDetection(pl.Callback):
-    def on_validation_epoch_start(self, trainer, pl_module) -> None:
-        self.ood_labels = []
-        self.ood_scores = []
-
-    def on_validation_batch_end(self, trainer, pl_module: VICReg, outputs, batch, batch_idx, dataloader_idx=0):
-        (_, *views), labels = batch
-        ood_labels = labels.cpu() == -1
-
-        with eval_mode(pl_module.encoder, enable_dropout=True), eval_mode(pl_module.projector):
-            embeds = torch.stack([pl_module.projector(pl_module.encoder(v)).detach().cpu() for v in views])
-            ood_scores = embeds.var(0).mean(-1)
-
-        self.ood_labels.extend(ood_labels.tolist())
-        self.ood_scores.extend(ood_scores.tolist())
-
-    def on_validation_epoch_end(self, trainer, pl_module) -> None:
-        self.log('val/ood_auroc', roc_auc_score(self.ood_labels, self.ood_scores))
-
-        ood_scores = np.array(self.ood_scores)
-        ood_labels = np.array(self.ood_labels)
-        self.log('val/mean_ood_score_for_ood_data', ood_scores[ood_labels].mean())
-        self.log('val/mean_ood_score_for_id_data', ood_scores[~ood_labels].mean())

@@ -1,4 +1,5 @@
 from typing import Any
+import math
 
 import torch
 import torch.nn as nn
@@ -9,9 +10,10 @@ from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from ssl_sandbox.nn.encoder import encoder, EncoderArchitecture
 from ssl_sandbox.nn.blocks import MLP
+from ssl_sandbox.nn.functional import off_diagonal
 
 
-class SimCLR(pl.LightningModule):
+class IBFCodes(pl.LightningModule):
     def __init__(
             self,
             encoder_architecture: EncoderArchitecture,
@@ -19,9 +21,9 @@ class SimCLR(pl.LightningModule):
             drop_channel_rate: float = 0.5,
             drop_block_rate: float = 0.0,
             drop_path_rate: float = 0.1,
-            proj_dim: int = 128,
-            temp: float = 0.1,
-            decoupled: bool = False,
+            code_dim: int = 2048,
+            sharpen_temp: float = 0.25,
+            reg_weight: float = 1.0,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
             warmup_epochs: int = 10,
@@ -35,39 +37,48 @@ class SimCLR(pl.LightningModule):
             drop_block_rate=drop_block_rate,
             drop_path_rate=drop_path_rate
         )
-        self.projector = MLP(self.embed_dim, self.embed_dim, proj_dim, num_hidden_layers=2,
-                             dropout_rate=dropout_rate, bias=False)
+        self.projector = MLP(self.embed_dim, code_dim, code_dim, num_hidden_layers=2, dropout_rate=dropout_rate)
 
-        self.temp = temp
-        self.decoupled = decoupled
+        self.sharpen_temp = sharpen_temp
+        self.reg_weight = reg_weight
         self.lr = lr
         self.weight_decay = weight_decay
         self.warmup_epochs = warmup_epochs
 
         self.save_hyperparameters()
 
-    def forward(self, images):
-        return self.encoder(images)
-
     def training_step(self, batch, batch_idx):
-        (_, views_1, views_2), _ = batch
+        (_, student_views, teacher_views), _ = batch
 
-        embeds_1 = F.normalize(self.projector(self(views_1)), dim=1)  # (batch_size, proj_dim)
-        embeds_2 = F.normalize(self.projector(self(views_2)), dim=1)  # (batch_size, proj_dim)
+        logits = self.projector(self.encoder(student_views))
 
-        logits_11 = torch.matmul(embeds_1, embeds_1.T) / self.temp  # (batch_size, batch_size)
-        logits_11.fill_diagonal_(float('-inf'))
-        logits_12 = torch.matmul(embeds_1, embeds_2.T) / self.temp
-        pos_logits = logits_12.diag()
-        if self.decoupled:
-            logits_12.fill_diagonal_(float('-inf'))
-        logits_22 = torch.matmul(embeds_2, embeds_2.T) / self.temp
-        logits_22.fill_diagonal_(float('-inf'))
+        with torch.no_grad():
+            targets = torch.sigmoid(self.projector(self.encoder(teacher_views)) / self.sharpen_temp)
 
-        loss_1 = torch.mean(-pos_logits + torch.logsumexp(torch.cat([logits_11, logits_12], dim=1), dim=1))
-        loss_2 = torch.mean(-pos_logits + torch.logsumexp(torch.cat([logits_12.T, logits_22], dim=1), dim=1))
-        loss = (loss_1 + loss_2) / 2
-        self.log(f'train/simclr_loss', loss, on_epoch=True)
+        bootstrap_loss = F.binary_cross_entropy_with_logits(logits, targets)
+
+        n, _ = logits.shape
+        probas = torch.sigmoid(logits)  # (n, k)
+        p_11 = probas.T @ probas / n  # (k, k)
+        p_11 = self.all_gather(p_11, sync_grads=True).mean(dim=0)
+        p_1 = probas.mean(dim=0)  # (k, k)
+        p_1 = self.all_gather(p_1, sync_grads=True).mean(dim=0)
+        p_01 = p_1 - p_11
+        p_10 = p_01.T
+        p_00 = 1 - p_01 - p_10 - p_11
+        pairwise_entropies = off_diagonal(
+            p_00.pow(-p_00).log()
+            + p_01.pow(-p_01).log()
+            + p_10.pow(-p_10).log()
+            + p_11.pow(-p_11).log()
+        )
+        reg = 2 * math.log(2) - pairwise_entropies.mean()
+
+        loss = bootstrap_loss + self.reg_weight * reg
+
+        self.log(f'train/bootstrap_loss', bootstrap_loss, on_epoch=True, sync_dist=True)
+        self.log(f'train/reg', reg, on_epoch=True, sync_dist=True)
+        self.log(f'train/loss', loss, on_epoch=True, sync_dist=True)
 
         return loss
 
