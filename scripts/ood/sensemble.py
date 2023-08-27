@@ -10,7 +10,7 @@ from pytorch_lightning.strategies import DDPStrategy
 from ssl_sandbox.pretrain import Sensemble
 from ssl_sandbox.eval import OnlineProbing
 from ssl_sandbox.datamodules import CIFAR4vs6DataModule
-from ssl_sandbox.pretrain.transforms import SimCLRViews
+from ssl_sandbox.pretrain.transforms import SimCLRViews, SensembleTrainViews, SensembleInferenceViews
 
 
 def parse_args():
@@ -24,6 +24,8 @@ def parse_args():
     parser.add_argument('--drop_channel_rate', type=float, default=0.5)
     parser.add_argument('--drop_block_rate', type=float, default=0.0)
     parser.add_argument('--drop_path_rate', type=float, default=0.1)
+    
+    parser.add_argument('--views', default='simclr')
 
     parser.add_argument('--num_prototypes', type=int, default=2048)
     parser.add_argument('--sinkhorn_queue_size', type=int, default=3072)
@@ -53,19 +55,35 @@ def main(args):
     image_size = 32
     jitter_strength = 0.5
     blur = False
-    dm.train_transforms = SimCLRViews(
-        size=image_size,
-        jitter_strength=jitter_strength,
-        blur=blur,
-        final_transforms=dm.default_transforms()
-    )
-    dm.val_transforms = SimCLRViews(
-        size=image_size,
-        jitter_strength=jitter_strength,
-        blur=blur,
-        final_transforms=dm.default_transforms(),
-        views_number=10
-    )
+    match args.views:
+        case 'simclr':
+            dm.train_transforms = SimCLRViews(
+                size=image_size,
+                jitter_strength=jitter_strength,
+                blur=blur,
+                final_transforms=dm.default_transforms()
+            )
+            dm.val_transforms = SimCLRViews(
+                size=image_size,
+                jitter_strength=jitter_strength,
+                blur=blur,
+                final_transforms=dm.default_transforms(),
+                views_number=10
+            )
+        case 'sensemble':
+            dm.train_transforms = SensembleTrainViews(
+                size=image_size,
+                blur=blur,
+                final_transforms=dm.default_transforms()
+            )
+            dm.val_transforms = SensembleInferenceViews(
+                size=image_size,
+                blur=blur,
+                final_transforms=dm.default_transforms(),
+                views_number=10
+            )
+        case _:
+            raise ValueError(args.views)
 
     lr = args.base_lr * args.batch_size * torch.cuda.device_count() / 256
     model = Sensemble(
@@ -80,6 +98,7 @@ def main(args):
         weight_decay=args.weight_decay,
         warmup_epochs=args.warmup_epochs,
         # hparams to save
+        views=args.views,
         batch_size=args.batch_size,
         clip_grad=args.clip_grad,
         base_lr=args.base_lr
