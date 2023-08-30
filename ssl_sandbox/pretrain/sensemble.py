@@ -75,49 +75,63 @@ class Sensemble(pl.LightningModule):
 
     def on_fit_start(self) -> None:
         queue_size = self.sinkhorn_queue_size // self.trainer.world_size
-        self.sinkhorn_queue = torch.zeros(queue_size, self.num_prototypes, device=self.device)
+        self.sinkhorn_queue_1 = torch.zeros(queue_size, self.num_prototypes, device=self.device)
+        self.sinkhorn_queue_2 = torch.zeros(queue_size, self.num_prototypes, device=self.device)
 
     def to_logits(self, images):
-        embeds = F.normalize(self.mlp(self.encoder(images)), dim=-1)
-        prototypes = F.normalize(self.prototypes, dim=-1)
-        return torch.matmul(embeds, prototypes.T) / self.temp
+        embeds = F.normalize(self.mlp(self.encoder(images)), dim=-1)  # (n, pd)
+        prototypes = F.normalize(self.prototypes, dim=-1)  # (np, pd)
+        return torch.matmul(embeds, prototypes.T) / self.temp  # (n, np)
 
     def training_step(self, batch, batch_idx):
-        (_, student_views, teacher_views), _ = batch
+        (_, views_1, views_2), _ = batch
 
-        logits = self.to_logits(student_views)
-
-        with torch.no_grad():
-            targets = torch.softmax(self.to_logits(teacher_views) / self.sharpen_temp, dim=-1)
+        logits_1 = self.to_logits(views_1)
+        logits_2 = self.to_logits(views_2)
+        
+        targets_1 = torch.softmax(logits_1.detach() / self.sharpen_temp, dim=-1)
+        targets_2 = torch.softmax(logits_2.detach() / self.sharpen_temp, dim=-1)
 
         if self.num_sinkhorn_iters > 0:
-            batch_size = len(targets)
-            queue_size = len(self.sinkhorn_queue)
+            batch_size = len(targets_1)
+            queue_size = len(self.sinkhorn_queue_1)
             assert queue_size >= batch_size
 
             # update queue
             if queue_size > batch_size:
-                self.sinkhorn_queue[batch_size:] = self.sinkhorn_queue[:-batch_size].clone()
-            self.sinkhorn_queue[:batch_size] = targets
+                self.sinkhorn_queue_1[batch_size:] = self.sinkhorn_queue_1[:-batch_size].clone()
+                self.sinkhorn_queue_2[batch_size:] = self.sinkhorn_queue_1[:-batch_size].clone()
+            self.sinkhorn_queue_1[:batch_size] = targets_1
+            self.sinkhorn_queue_2[:batch_size] = targets_2
 
             if batch_size * (self.global_step + 1) >= queue_size:
                 # queue is full and ready for usage
-                targets = self.sinkhorn(self.sinkhorn_queue.clone())[:batch_size]  # self.sinkhorn works inplace
+                targets_1 = self.sinkhorn(self.sinkhorn_queue_1.clone())[:batch_size]  # self.sinkhorn works inplace
+                targets_2 = self.sinkhorn(self.sinkhorn_queue_2.clone())[:batch_size]
             else:
-                targets = self.sinkhorn(targets)
+                targets_1 = self.sinkhorn(targets_1)
+                targets_2 = self.sinkhorn(targets_2)
 
-        bootstrap_loss = F.cross_entropy(logits, targets)
+        bootstrap_loss_1 = F.cross_entropy(logits_1, targets_2)
+        bootstrap_loss_2 = F.cross_entropy(logits_2, targets_1)
+        bootstrap_loss = (bootstrap_loss_1 + bootstrap_loss_2) / 2
 
-        probas = torch.softmax(logits, dim=-1)  # (batch_size, num_prototypes)
-        probas = self.all_gather(probas, sync_grads=True)  # (world_size, batch_size, num_prototypes)
-        memax = math.log(self.num_prototypes) - entropy(probas.mean(dim=(0, 1)), dim=-1)
+        probas_1 = torch.softmax(logits_1, dim=-1)  # (batch_size, num_prototypes)
+        probas_2 = torch.softmax(logits_2, dim=-1)
+
+        probas_1 = self.all_gather(probas_1, sync_grads=True)  # (world_size, batch_size, num_prototypes)
+        probas_2 = self.all_gather(probas_2, sync_grads=True)
+
+        memax_1 = math.log(self.num_prototypes) - entropy(probas_1.mean(dim=(0, 1)), dim=-1)
+        memax_2 = math.log(self.num_prototypes) - entropy(probas_2.mean(dim=(0, 1)), dim=-1)
+        memax = (memax_1 + memax_2) / 2
 
         loss = bootstrap_loss + self.memax_weight * memax
 
         self.log(f'train/bootstrap_loss', bootstrap_loss, on_epoch=True, sync_dist=True)
         self.log(f'train/memax_reg', memax, on_epoch=True, sync_dist=True)
         self.log(f'train/loss', loss, on_epoch=True, sync_dist=True)
-        self.log(f'train/entropy', entropy(probas, dim=-1).mean(), on_epoch=True, sync_dist=True)
+        self.log(f'train/entropy', entropy(probas_1, dim=-1).mean(), on_epoch=True, sync_dist=True)
         self.logger.log_metrics({'memax_weight': self.memax_weight}, self.global_step)
 
         return loss
