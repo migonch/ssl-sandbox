@@ -28,6 +28,7 @@ def parse_args():
     parser.add_argument('--views', default='simclr')
 
     parser.add_argument('--num_prototypes', type=int, default=2048)
+    parser.add_argument('--prototype_dim', type=int, default=128)
     parser.add_argument('--sinkhorn_queue_size', type=int, default=3072)
 
     parser.add_argument('--batch_size', type=int, default=384)
@@ -92,6 +93,7 @@ def main(args):
         drop_channel_rate=args.drop_channel_rate,
         drop_block_rate=args.drop_block_rate,
         drop_path_rate=args.drop_path_rate,
+        prototype_dim=args.prototype_dim,
         num_prototypes=args.num_prototypes,
         sinkhorn_queue_size=args.sinkhorn_queue_size,
         lr=lr,
