@@ -36,7 +36,7 @@ def parse_args():
     parser.add_argument('--base_lr', type=float, default=1e-2)
     parser.add_argument('--weight_decay', type=float, default=1e-4)
     parser.add_argument('--warmup_epochs', type=int, default=100)
-    parser.add_argument('--num_epochs', type=int, default=5000)
+    parser.add_argument('--num_epochs', type=int, default=10_000)
     parser.add_argument('--clip_grad', type=float)
 
     parser.add_argument('--ckpt_path')
@@ -108,7 +108,8 @@ def main(args):
         OnlineProbing(model.embed_dim, dm.num_classes),
         LearningRateMonitor(),
         DeviceStatsMonitor(),
-        ModelCheckpoint(save_top_k=1, monitor='val/ood_auroc_mean_entropy_on_views', filename='best', mode='max')
+        ModelCheckpoint(save_top_k=1, monitor='val/ood_auroc_mean_entropy_on_views',
+                        filename='best', mode='max', save_last=True)
     ]
 
     logger = TensorBoardLogger(
