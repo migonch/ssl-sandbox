@@ -29,6 +29,7 @@ class Sensemble(pl.LightningModule):
             num_sinkhorn_iters: int = 3,
             sinkhorn_queue_size: int = 3072,
             memax_weight: float = 1.0,
+            dispersion_weight: float = 1.0,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
             warmup_epochs: int = 10,
@@ -53,6 +54,7 @@ class Sensemble(pl.LightningModule):
         self.num_sinkhorn_iters = num_sinkhorn_iters
         self.sinkhorn_queue_size = sinkhorn_queue_size
         self.memax_weight = memax_weight
+        self.dispersion_weight = dispersion_weight
         self.lr = lr
         self.weight_decay = weight_decay
         self.warmup_epochs = warmup_epochs
@@ -125,11 +127,17 @@ class Sensemble(pl.LightningModule):
         memax_1 = math.log(self.num_prototypes) - entropy(probas_1.mean(dim=(0, 1)), dim=-1)
         memax_2 = math.log(self.num_prototypes) - entropy(probas_2.mean(dim=(0, 1)), dim=-1)
         memax = (memax_1 + memax_2) / 2
+        
+        prototypes = F.normalize(self.prototypes, dim=-1)  # (np, pd)
+        logits = (prototypes @ prototypes.T / self.temp)
+        logits.fill_diagonal_(float('-inf'))
+        dispersion = torch.logsumexp(logits, dim=1).mean()
 
-        loss = bootstrap_loss + self.memax_weight * memax
+        loss = bootstrap_loss + self.memax_weight * memax + self.dispersion_weight * dispersion
 
         self.log(f'train/bootstrap_loss', bootstrap_loss, on_epoch=True, sync_dist=True)
         self.log(f'train/memax_reg', memax, on_epoch=True, sync_dist=True)
+        self.log(f'train/dispersion_reg', dispersion, on_epoch=True, sync_dist=True)
         self.log(f'train/loss', loss, on_epoch=True, sync_dist=True)
         self.log(f'train/entropy', entropy(probas_1, dim=-1).mean(), on_epoch=True, sync_dist=True)
         self.logger.log_metrics({'memax_weight': self.memax_weight}, self.global_step)
