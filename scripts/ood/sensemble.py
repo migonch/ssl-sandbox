@@ -31,6 +31,7 @@ def parse_args():
     parser.add_argument('--prototype_dim', type=int, default=128)
     parser.add_argument('--sinkhorn_queue_size', type=int, default=3072)
     parser.add_argument('--memax_weight', type=float, default=1.0)
+    parser.add_argument('--dispersion_weight', type=float, default=1.0)
 
     parser.add_argument('--batch_size', type=int, default=192)
     parser.add_argument('--num_workers', type=int, default=8)
@@ -98,6 +99,7 @@ def main(args):
         num_prototypes=args.num_prototypes,
         sinkhorn_queue_size=args.sinkhorn_queue_size,
         memax_weight=args.memax_weight,
+        dispersion_weight=args.dispersion_weight,
         lr=lr,
         weight_decay=args.weight_decay,
         warmup_epochs=args.warmup_epochs,
