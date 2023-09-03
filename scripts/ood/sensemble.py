@@ -10,7 +10,7 @@ from pytorch_lightning.strategies import DDPStrategy
 from ssl_sandbox.pretrain import Sensemble
 from ssl_sandbox.eval import OnlineProbing
 from ssl_sandbox.datamodules import CIFAR4vs6DataModule
-from ssl_sandbox.pretrain.transforms import SimCLRViews, SensembleTrainViews, SensembleInferenceViews
+from ssl_sandbox.pretrain.transforms import SimCLRViews
 
 
 def parse_args():
@@ -71,18 +71,6 @@ def main(args):
                 size=image_size,
                 scale=(0.2, 1.0),
                 jitter_strength=jitter_strength,
-                blur=blur,
-                final_transforms=dm.default_transforms(),
-                views_number=10
-            )
-        case 'sensemble':
-            dm.train_transforms = SensembleTrainViews(
-                size=image_size,
-                blur=blur,
-                final_transforms=dm.default_transforms()
-            )
-            dm.val_transforms = SensembleInferenceViews(
-                size=image_size,
                 blur=blur,
                 final_transforms=dm.default_transforms(),
                 views_number=10
