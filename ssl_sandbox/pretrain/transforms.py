@@ -60,19 +60,19 @@ class SimCLRViews:
     def __init__(
             self,
             size: int,
+            scale: Tuple[float, float] = (0.08, 1.0),
             jitter_strength: float = 1.0,
             blur: bool = True,
             final_transforms: Optional[Callable] = None,
             views_number: int = 2
     ) -> None:
+        jitter_params = {k: v * jitter_strength for k, v in SIMCLR_COLOR_JITTER_PARAMS.items()}
         blur_p = 0.5 if blur else 0.0
         if final_transforms is None:
             final_transforms = T.ToTensor()
 
-        self.random_view = RandomView(
-            size, **{k: v * jitter_strength for k, v in SIMCLR_COLOR_JITTER_PARAMS.items()},
-            blur_p=blur_p, final_transforms=final_transforms,
-        )
+        self.random_view = RandomView(size, scale, **jitter_params, blur_p=blur_p,
+                                      final_transforms=final_transforms)
         self.final_transforms = final_transforms
         self.views_number = views_number
 
@@ -152,70 +152,4 @@ class MultiCrop:
             self.first_global_view(image),
             self.second_global_view(image),
             *[self.random_local_view(image) for _ in range(self.local_views_number)]
-        )
-
-
-class SensembleTrainViews:
-    def __init__(
-            self,
-            size: int,
-            student_view_scale: Tuple[float, float] = (0.08, 1.0),
-            teacher_view_scale: Tuple[float, float] = (0.3, 1.0),
-            blur: bool = True,
-            final_transforms: Optional[Callable] = None
-    ) -> None:
-        if final_transforms is None:
-            final_transforms = T.ToTensor()
-
-        self.student_view = RandomView(
-            size,
-            student_view_scale,
-            **BYOL_COLOR_JITTER_PARAMS,
-            blur_p=(0.5 if blur else 0.0),
-            final_transforms=final_transforms
-        )
-        self.teacher_view = RandomView(
-            size,
-            teacher_view_scale,
-            **BYOL_COLOR_JITTER_PARAMS,
-            grayscale_p=0.0,
-            blur_p=0.0,
-            final_transforms=final_transforms
-        )
-        self.final_transforms = final_transforms
-
-    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
-        return (
-            self.final_transforms(image),
-            self.student_view(image),
-            self.teacher_view(image)
-        )
-
-
-class SensembleInferenceViews:
-    """Set ``blur=False`` for CIFAR10 dataset (according to https://arxiv.org/abs/2002.05709).
-    """
-    def __init__(
-            self,
-            size: int,
-            blur: bool = True,
-            final_transforms: Optional[Callable] = None,
-            views_number: int = 10
-    ) -> None:
-        if final_transforms is None:
-            final_transforms = T.ToTensor()
-
-        self.random_view = RandomView(
-            size,
-            **BYOL_COLOR_JITTER_PARAMS,
-            blur_p=(0.5 if blur else 0.0),
-            final_transforms=final_transforms,
-        )
-        self.final_transforms = final_transforms
-        self.views_number = views_number
-
-    def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
-        return (
-            self.final_transforms(image),
-            *[self.random_view(image) for _ in range(self.views_number)]
         )

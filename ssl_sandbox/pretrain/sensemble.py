@@ -127,9 +127,9 @@ class Sensemble(pl.LightningModule):
         memax_1 = math.log(self.num_prototypes) - entropy(probas_1.mean(dim=(0, 1)), dim=-1)
         memax_2 = math.log(self.num_prototypes) - entropy(probas_2.mean(dim=(0, 1)), dim=-1)
         memax = (memax_1 + memax_2) / 2
-        
+
         prototypes = F.normalize(self.prototypes, dim=-1)  # (np, pd)
-        logits = (prototypes @ prototypes.T / self.temp)
+        logits = prototypes @ prototypes.T / self.temp
         logits.fill_diagonal_(float('-inf'))
         dispersion = torch.logsumexp(logits, dim=1).mean()
 

@@ -62,12 +62,14 @@ def main(args):
         case 'simclr':
             dm.train_transforms = SimCLRViews(
                 size=image_size,
+                scale=(0.2, 1.0),
                 jitter_strength=jitter_strength,
                 blur=blur,
                 final_transforms=dm.default_transforms()
             )
             dm.val_transforms = SimCLRViews(
                 size=image_size,
+                scale=(0.2, 1.0),
                 jitter_strength=jitter_strength,
                 blur=blur,
                 final_transforms=dm.default_transforms(),
