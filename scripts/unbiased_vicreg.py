@@ -19,15 +19,9 @@ def parse_args():
 
     parser.add_argument('--cifar10_dir', required=True)
     parser.add_argument('--log_dir', required=True)
-    parser.add_argument('--method', required=True)
-    parser.add_argument('--dataset', default='cifar10')
 
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--num_workers', type=int, default=8)
-
-    parser.add_argument('--lr', type=float, default=3e-4)
-    parser.add_argument('--weight_decay', type=float, default=0.0)
-    parser.add_argument('--num_epochs', type=int, default=1000)
 
     parser.add_argument('--ckpt_path')
 
@@ -69,7 +63,6 @@ def main(args):
         weight_decay=0.0,
         # hparams to save
         batch_size=args.batch_size,
-        method=args.method,
         clip_grad=args.clip_grad,
     )
     model = UnbiasedVICReg(**model_kwargs)
@@ -93,7 +86,7 @@ def main(args):
         accelerator='gpu',
         devices=-1,
         # strategy=DDPStrategy(find_unused_parameters=False),
-        max_epochs=args.num_epochs,
+        max_epochs=1000,
         log_every_n_steps=10
     )
     trainer.fit(model, datamodule=dm, ckpt_path=args.ckpt_path)
