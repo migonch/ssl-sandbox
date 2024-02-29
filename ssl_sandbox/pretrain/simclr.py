@@ -1,7 +1,6 @@
 from typing import Any
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 import pytorch_lightning as pl
@@ -15,36 +14,31 @@ class SimCLR(pl.LightningModule):
     def __init__(
             self,
             encoder_architecture: EncoderArchitecture,
-            dropout_rate: float = 0.5,
-            drop_channel_rate: float = 0.5,
-            drop_block_rate: float = 0.0,
-            drop_path_rate: float = 0.1,
             proj_dim: int = 128,
             temp: float = 0.1,
             decoupled: bool = False,
             lr: float = 1e-2,
             weight_decay: float = 1e-6,
             warmup_epochs: int = 10,
-            **hparams: Any
+            **hparams: Any  # will be dumped to yaml in logs folder
     ):
         super().__init__()
 
-        self.encoder, self.embed_dim = encoder(
-            architecture=encoder_architecture,
-            drop_channel_rate=drop_channel_rate,
-            drop_block_rate=drop_block_rate,
-            drop_path_rate=drop_path_rate
-        )
-        self.projector = MLP(self.embed_dim, self.embed_dim, proj_dim, num_hidden_layers=2,
-                             dropout_rate=dropout_rate, bias=False)
+        self.save_hyperparameters()
 
+        self.encoder, self.embed_dim = encoder(architecture=encoder_architecture)
+        self.projector = MLP(
+            input_dim=self.embed_dim,
+            hidden_dim=self.embed_dim,
+            output_dim=proj_dim,
+            num_hidden_layers=2,
+            bias=False
+        )
         self.temp = temp
         self.decoupled = decoupled
         self.lr = lr
         self.weight_decay = weight_decay
         self.warmup_epochs = warmup_epochs
-
-        self.save_hyperparameters()
 
     def forward(self, images):
         return self.encoder(images)
@@ -67,7 +61,7 @@ class SimCLR(pl.LightningModule):
         loss_1 = torch.mean(-pos_logits + torch.logsumexp(torch.cat([logits_11, logits_12], dim=1), dim=1))
         loss_2 = torch.mean(-pos_logits + torch.logsumexp(torch.cat([logits_12.T, logits_22], dim=1), dim=1))
         loss = (loss_1 + loss_2) / 2
-        self.log(f'train/simclr_loss', loss, on_epoch=True)
+        self.log(f'pretrain/simclr_loss', loss, on_epoch=True)
 
         return loss
 

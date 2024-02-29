@@ -76,9 +76,9 @@ class IBFCodes(pl.LightningModule):
 
         loss = bootstrap_loss + self.reg_weight * reg
 
-        self.log(f'train/bootstrap_loss', bootstrap_loss, on_epoch=True, sync_dist=True)
-        self.log(f'train/reg', reg, on_epoch=True, sync_dist=True)
-        self.log(f'train/loss', loss, on_epoch=True, sync_dist=True)
+        self.log(f'pretrain/bootstrap_loss', bootstrap_loss, on_epoch=True, sync_dist=True)
+        self.log(f'pretrain/reg', reg, on_epoch=True, sync_dist=True)
+        self.log(f'pretrain/loss', loss, on_epoch=True, sync_dist=True)
 
         return loss
 

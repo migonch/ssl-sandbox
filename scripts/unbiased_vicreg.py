@@ -1,12 +1,15 @@
 from argparse import ArgumentParser
 
+import torch
+import torch.nn as nn
+
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 from pytorch_lightning.callbacks import LearningRateMonitor, DeviceStatsMonitor, ModelCheckpoint
 from pytorch_lightning.strategies import DDPStrategy
 from pl_bolts.datamodules import CIFAR10DataModule
 
-from ssl_sandbox.pretrain.wasreg import WassersteinReg
+from ssl_sandbox.pretrain.unbiased_vicreg import UnbiasedVICReg
 from ssl_sandbox.eval import OnlineProbing
 from ssl_sandbox.pretrain.transforms import SimCLRViews
 
@@ -16,11 +19,15 @@ def parse_args():
 
     parser.add_argument('--cifar10_dir', required=True)
     parser.add_argument('--log_dir', required=True)
+    parser.add_argument('--method', required=True)
+    parser.add_argument('--dataset', default='cifar10')
 
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--num_workers', type=int, default=8)
 
-    parser.add_argument('--num_epochs', type=int, default=5000)
+    parser.add_argument('--lr', type=float, default=3e-4)
+    parser.add_argument('--weight_decay', type=float, default=0.0)
+    parser.add_argument('--num_epochs', type=int, default=1000)
 
     parser.add_argument('--ckpt_path')
 
@@ -54,19 +61,18 @@ def main(args):
 
     model_kwargs = dict(
         encoder_architecture='resnet50_cifar10',
-        projector_hidden_dim=2048,
-        projector_out_dim=512,
-        critic_hidden_dim=1024,
-        gp_weight=100.0,
-        num_critic_steps=5,
-        wasreg_weight=0.01,
+        proj_dim=8192,
+        i_weight=25.0,
+        v_weight=25.0,
+        c_weight=1.0,
         lr=3e-4,
-        betas=(0.5, 0.9),
-        weight_decay=1e-6,
+        weight_decay=0.0,
         # hparams to save
         batch_size=args.batch_size,
+        method=args.method,
+        clip_grad=args.clip_grad,
     )
-    model = WassersteinReg(**model_kwargs)
+    model = UnbiasedVICReg(**model_kwargs)
 
     callbacks = [
         OnlineProbing(model.embed_dim, dm.num_classes),
@@ -76,7 +82,7 @@ def main(args):
 
     logger = TensorBoardLogger(
         save_dir=args.log_dir,
-        name=f'pretrain/cifar10/wasreg'
+        name=f'pretrain/cifar10/unbiased_vicreg'
     )
     logger.log_hyperparams(model.hparams)
 

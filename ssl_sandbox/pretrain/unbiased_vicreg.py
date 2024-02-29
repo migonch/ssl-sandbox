@@ -4,14 +4,41 @@ import torch
 import torch.nn.functional as F
 
 import pytorch_lightning as pl
-from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from ssl_sandbox.nn.encoder import encoder, EncoderArchitecture
 from ssl_sandbox.nn.blocks import MLP
 from ssl_sandbox.nn.functional import off_diagonal
 
 
-class VICReg(pl.LightningModule):
+def covariance_matrix(embeds: torch.Tensor) -> torch.Tensor:
+    """
+
+    Args:
+        embeds (torch.Tensor):
+            Batch of embeddings. Size (n, d).
+
+    Returns:
+        torch.Tensor: matrix of size (d, d).
+    """
+    n, _ = embeds.shape
+    embeds = embeds - embeds.mean(dim=0)
+    return (embeds.T @ embeds).div(n - 1)
+
+
+def unbiased_vc_reg(embeds: torch.Tensor) -> torch.Tensor:
+    n, d = embeds.shape
+    if n < 4:
+        raise ValueError('Batch size must be at least 4')
+
+    cov_1 = covariance_matrix(embeds[:n // 2])
+    cov_2 = covariance_matrix(embeds[n // 2:])
+    v_reg = torch.mean(cov_1.diagonal().add(-1) * cov_2.diagonal().add(-1))
+    c_reg = torch.sum(off_diagonal(cov_1) * off_diagonal(cov_2)).div(d)
+
+    return v_reg, c_reg
+
+
+class UnbiasedVICReg(pl.LightningModule):
     def __init__(
             self,
             encoder_architecture: EncoderArchitecture,
@@ -19,9 +46,8 @@ class VICReg(pl.LightningModule):
             i_weight: float = 25.0,
             v_weight: float = 25.0,
             c_weight: float = 1.0,
-            lr: float = 1e-2,
-            weight_decay: float = 1e-6,
-            warmup_epochs: int = 10,
+            lr: float = 3e-4,
+            weight_decay: float = 0.0,
             **hparams: Any
     ):
         super().__init__()
@@ -53,29 +79,22 @@ class VICReg(pl.LightningModule):
         embeds_2 = self.projector(self.encoder(views_2))  # (batch_size, proj_dim)
 
         i_reg = F.mse_loss(embeds_1, embeds_2)
-        self.log(f'pretrain/i_reg', i_reg, on_epoch=True)
+        self.log(f'pretrain/i_reg', i_reg, on_step=True, on_epoch=True)
 
-        embeds_1 = embeds_1 - embeds_1.mean(dim=0)
-        embeds_2 = embeds_2 - embeds_2.mean(dim=0)
-
-        eps = 1e-4
-        v_reg_1 = torch.mean(F.relu(1 - torch.sqrt(embeds_1.var(dim=0) + eps)))
-        v_reg_2 = torch.mean(F.relu(1 - torch.sqrt(embeds_2.var(dim=0) + eps)))
+        v_reg_1, c_reg_1 = unbiased_vc_reg(embeds_1)
+        v_reg_2, c_reg_2 = unbiased_vc_reg(embeds_2)
         v_reg = (v_reg_1 + v_reg_2) / 2
-        self.log(f'pretrain/v_reg', v_reg, on_epoch=True)
+        self.log('pretrain/unbiased_v_reg', v_reg, on_step=True, on_epoch=True)
 
-        n, d = embeds_1.shape
-        c_reg_1 = off_diagonal(embeds_1.T @ embeds_1).div(n - 1).pow_(2).sum().div(d)
-        c_reg_2 = off_diagonal(embeds_2.T @ embeds_2).div(n - 1).pow_(2).sum().div(d)
         c_reg = (c_reg_1 + c_reg_2) / 2
-        self.log(f'pretrain/c_reg', c_reg, on_epoch=True)
+        self.log(f'pretrain/unbiased_c_reg', c_reg, on_step=True, on_epoch=True)
 
         vic_reg = (
             self.i_weight * i_reg
             + self.v_weight * v_reg
             + self.c_weight * c_reg
         )
-        self.log(f'pretrain/vic_reg', vic_reg, on_epoch=True)
+        self.log(f'pretrain/unbiased_vic_reg', vic_reg, on_epoch=True)
 
         return vic_reg
 
@@ -83,9 +102,4 @@ class VICReg(pl.LightningModule):
         pass
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        assert self.trainer.max_epochs != -1
-        scheduler = LinearWarmupCosineAnnealingLR(
-            optimizer, warmup_epochs=self.warmup_epochs, max_epochs=self.trainer.max_epochs
-        )
-        return {'optimizer': optimizer, 'lr_scheduler': scheduler}
+        return torch.optim.SGD(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)

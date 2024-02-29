@@ -101,8 +101,8 @@ class OnlineProbing(pl.Callback):
     def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
         (images, *_), labels = batch
 
-        with torch.no_grad(), eval_mode(pl_module.encoder):
-            embeds = pl_module.encoder(images)
+        with torch.no_grad(), eval_mode(pl_module):
+            embeds = pl_module.forward(images)
 
         for prefix in ['linear', 'nonlinear']:
             head = getattr(self, f'{prefix}_head')
@@ -118,8 +118,8 @@ class OnlineProbing(pl.Callback):
         (images, *_), labels = batch
         images, labels = images[labels != -1], labels[labels != -1]  # filter out ood examples
 
-        with torch.no_grad(), eval_mode(pl_module.encoder):
-            embeds = pl_module.encoder(images)
+        with torch.no_grad(), eval_mode(pl_module):
+            embeds = pl_module.forward(images)
 
         self.val_lin_prob_acc.update(self.linear_head(embeds), labels)
         self.val_nonlin_prob_acc.update(self.nonlinear_head(embeds), labels)
