@@ -67,7 +67,6 @@ class UnbiasedVICReg(pl.LightningModule):
         self.c_weight = c_weight
         self.lr = lr
         self.weight_decay = weight_decay
-        self.warmup_epochs = warmup_epochs
 
     def forward(self, images):
         return self.encoder(images)

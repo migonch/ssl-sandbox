@@ -55,15 +55,14 @@ def main(args):
 
     model_kwargs = dict(
         encoder_architecture='resnet50_cifar10',
-        proj_dim=8192,
-        i_weight=25.0,
+        proj_dim=4096,
+        i_weight=5.0,
         v_weight=25.0,
         c_weight=1.0,
         lr=3e-4,
         weight_decay=0.0,
         # hparams to save
         batch_size=args.batch_size,
-        clip_grad=args.clip_grad,
     )
     model = UnbiasedVICReg(**model_kwargs)
 
