@@ -2,11 +2,9 @@ from typing import Any
 import math
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 
 import pytorch_lightning as pl
-from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 
 from ssl_sandbox.nn.encoder import encoder, EncoderArchitecture
 from ssl_sandbox.nn.blocks import MLP
@@ -17,45 +15,46 @@ class IBFCodes(pl.LightningModule):
     def __init__(
             self,
             encoder_architecture: EncoderArchitecture,
-            dropout_rate: float = 0.5,
-            drop_channel_rate: float = 0.5,
-            drop_block_rate: float = 0.0,
-            drop_path_rate: float = 0.1,
-            code_dim: int = 2048,
-            sharpen_temp: float = 0.25,
-            reg_weight: float = 1.0,
-            lr: float = 1e-2,
-            weight_decay: float = 1e-6,
-            warmup_epochs: int = 10,
+            code_dim: int,
+            sharpen_temp: float,
+            reg_weight: float,
+            lr: float,
+            weight_decay: float,
+            epochs: int,
+            warmup_epochs: int,
+            batches_per_epoch: int,
             **hparams: Any
     ):
         super().__init__()
+        
+        self.save_hyperparameters()
 
-        self.encoder, self.embed_dim = encoder(
-            architecture=encoder_architecture,
-            drop_channel_rate=drop_channel_rate,
-            drop_block_rate=drop_block_rate,
-            drop_path_rate=drop_path_rate
+        self.encoder, self.embed_dim = encoder(encoder_architecture)
+        self.projector = MLP(
+            input_dim=self.embed_dim,
+            hidden_dim=code_dim,
+            output_dim=code_dim,
+            num_hidden_layers=2,
+            bias=False
         )
-        self.projector = MLP(self.embed_dim, code_dim, code_dim, num_hidden_layers=2, dropout_rate=dropout_rate)
-
         self.sharpen_temp = sharpen_temp
         self.reg_weight = reg_weight
         self.lr = lr
         self.weight_decay = weight_decay
+        self.epochs = epochs
         self.warmup_epochs = warmup_epochs
-
-        self.save_hyperparameters()
+        self.batches_per_epoch = batches_per_epoch
 
     def training_step(self, batch, batch_idx):
-        (_, student_views, teacher_views), _ = batch
+        (_, x_student, x_teacher), _ = batch
 
-        logits = self.projector(self.encoder(student_views))
+        logits = self.projector(self.encoder(x_student))
 
         with torch.no_grad():
-            targets = torch.sigmoid(self.projector(self.encoder(teacher_views)) / self.sharpen_temp)
+            targets = torch.sigmoid(self.projector(self.encoder(x_teacher)) / self.sharpen_temp)
 
         bootstrap_loss = F.binary_cross_entropy_with_logits(logits, targets)
+        self.log(f'pretrain/bootstrap_loss', bootstrap_loss, on_step=True, on_epoch=True)
 
         n, _ = logits.shape
         probas = torch.sigmoid(logits)  # (n, k)
@@ -72,13 +71,11 @@ class IBFCodes(pl.LightningModule):
             + p_10.pow(-p_10).log()
             + p_11.pow(-p_11).log()
         )
-        reg = 2 * math.log(2) - pairwise_entropies.mean()
+        ibf_reg = 2 * math.log(2) - pairwise_entropies.mean()
+        self.log(f'pretrain/ibf_reg', ibf_reg, on_step=True, on_epoch=True)
 
-        loss = bootstrap_loss + self.reg_weight * reg
-
-        self.log(f'pretrain/bootstrap_loss', bootstrap_loss, on_epoch=True, sync_dist=True)
-        self.log(f'pretrain/reg', reg, on_epoch=True, sync_dist=True)
-        self.log(f'pretrain/loss', loss, on_epoch=True, sync_dist=True)
+        loss = bootstrap_loss + self.reg_weight * ibf_reg
+        self.log(f'pretrain/loss', loss, on_step=True, on_epoch=True)
 
         return loss
 
@@ -86,9 +83,16 @@ class IBFCodes(pl.LightningModule):
         pass
 
     def configure_optimizers(self):
-        optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr, weight_decay=self.weight_decay)
-        assert self.trainer.max_epochs != -1
-        scheduler = LinearWarmupCosineAnnealingLR(
-            optimizer, warmup_epochs=self.warmup_epochs, max_epochs=self.trainer.max_epochs
+        optimizer = torch.optim.AdamW(
+            self.parameters(),
+            lr=self.lr,
+            weight_decay=self.weight_decay
+        )
+        scheduler = torch.optim.lr_scheduler.OneCycleLR(
+            optimizer,
+            max_lr=self.lr,
+            epochs=self.epochs,
+            steps_per_epoch=self.batches_per_epoch,
+            pct_start=self.warmup_epochs / self.epochs,
         )
         return {'optimizer': optimizer, 'lr_scheduler': scheduler}

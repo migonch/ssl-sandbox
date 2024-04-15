@@ -1,15 +1,12 @@
 from argparse import ArgumentParser
 
-import torch
-import torch.nn as nn
-
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.callbacks import LearningRateMonitor, DeviceStatsMonitor, ModelCheckpoint
+from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.strategies import DDPStrategy
 from pl_bolts.datamodules import CIFAR10DataModule
 
-from ssl_sandbox.pretrain.unbiased_vicreg import UnbiasedVICReg
+from ssl_sandbox.pretrain.apm import AdversarialPredictibilityMinimization
 from ssl_sandbox.eval import OnlineProbing
 from ssl_sandbox.pretrain.transforms import SimCLRViews
 
@@ -22,6 +19,7 @@ def parse_args():
 
     parser.add_argument('--batch_size', type=int, default=256)
     parser.add_argument('--num_workers', type=int, default=8)
+    parser.add_argument('--epochs', type=int, default=1000)
 
     parser.add_argument('--ckpt_path')
 
@@ -34,7 +32,8 @@ def main(args):
         val_split=1000,
         num_workers=args.num_workers,
         normalize=True,
-        batch_size=args.batch_size
+        batch_size=args.batch_size,
+        drop_last=True
     )
     image_size = 32
     blur = False
@@ -53,18 +52,18 @@ def main(args):
         views_number=10
     )
 
-    model_kwargs = dict(
+    model = AdversarialPredictibilityMinimization(
         encoder_architecture='resnet50_cifar10',
-        proj_dim=4096,
-        i_weight=5.0,
-        v_weight=25.0,
-        c_weight=1.0,
-        lr=3e-4,
-        weight_decay=0.0,
-        # hparams to save
-        batch_size=args.batch_size,
+        prototype_dim=128,
+        num_prototypes=2048,
+        temp=0.1,
+        prior_gamma=0.0,
+        lr=1e-2,
+        weight_decay=1e-6,
+        epochs=args.epochs,
+        warmup_epochs=10,
+        batches_per_epoch=dm.num_samples // args.batch_size
     )
-    model = UnbiasedVICReg(**model_kwargs)
 
     callbacks = [
         OnlineProbing(model.repr_dim, dm.num_classes),
@@ -74,9 +73,8 @@ def main(args):
 
     logger = TensorBoardLogger(
         save_dir=args.log_dir,
-        name=f'pretrain/cifar10/unbiased_vicreg'
+        name=f'pretrain/cifar10/apm'
     )
-    logger.log_hyperparams(model.hparams)
 
     trainer = pl.Trainer(
         logger=logger,
@@ -85,7 +83,7 @@ def main(args):
         accelerator='gpu',
         devices=-1,
         # strategy=DDPStrategy(find_unused_parameters=False),
-        max_epochs=1000,
+        max_epochs=args.epochs,
         log_every_n_steps=10
     )
     trainer.fit(model, datamodule=dm, ckpt_path=args.ckpt_path)

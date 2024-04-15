@@ -63,18 +63,20 @@ class SimCLRViews:
             scale: Tuple[float, float] = (0.08, 1.0),
             jitter_strength: float = 1.0,
             blur: bool = True,
+            views_number: int = 2,
             final_transforms: Optional[Callable] = None,
-            views_number: int = 2
     ) -> None:
         jitter_params = {k: v * jitter_strength for k, v in SIMCLR_COLOR_JITTER_PARAMS.items()}
         blur_p = 0.5 if blur else 0.0
         if final_transforms is None:
             final_transforms = T.ToTensor()
 
-        self.random_view = RandomView(size, scale, **jitter_params, blur_p=blur_p,
-                                      final_transforms=final_transforms)
-        self.final_transforms = final_transforms
+        self.random_view = RandomView(
+            size, scale, **jitter_params, blur_p=blur_p,
+            final_transforms=final_transforms
+        )
         self.views_number = views_number
+        self.final_transforms = final_transforms
 
     def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
         return (
@@ -143,8 +145,8 @@ class MultiCrop:
             **BYOL_COLOR_JITTER_PARAMS, blur_p=0.5,
             final_transforms=final_transforms
         )
-        self.final_transforms = final_transforms
         self.local_views_number = local_views_number
+        self.final_transforms = final_transforms
 
     def __call__(self, image: Union[Image.Image, torch.Tensor]) -> Any:
         return (

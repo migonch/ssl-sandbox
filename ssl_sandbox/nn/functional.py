@@ -11,6 +11,10 @@ def entropy(p: torch.Tensor, dim: int, truncate: Optional[int] = None) -> torch.
     return torch.sum(torch.log(p ** (-p)), dim=dim)
 
 
+def cross_entropy(p: torch.Tensor, q: torch.Tensor, dim: int) -> torch.Tensor:
+    return torch.sum(torch.log(q ** (-p)), dim=dim)
+
+
 def off_diagonal(x: torch.Tensor) -> torch.Tensor:
     n, m = x.shape
     assert n == m
