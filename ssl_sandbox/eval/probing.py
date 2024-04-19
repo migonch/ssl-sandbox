@@ -66,8 +66,8 @@ class Probing(pl.LightningModule):
         self.val_nonlin_prob_acc.update(self.nonlinear_head(embeds), labels)
 
     def on_validation_epoch_end(self) -> None:
-        self.log(f'val/linear_probing_accuracy', self.val_lin_prob_acc.compute())
-        self.log(f'val/nonlinear_probing_accuracy', self.val_nonlin_prob_acc.compute())
+        self.log(f'val/linear_probing_accuracy', self.val_lin_prob_acc.compute(), on_epoch=True)
+        self.log(f'val/nonlinear_probing_accuracy', self.val_nonlin_prob_acc.compute(), on_epoch=True)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=self.hparams.lr)
@@ -110,7 +110,7 @@ class OnlineProbing(pl.Callback):
 
             optimizer.zero_grad()
             loss = F.cross_entropy(head(embeds), labels)
-            pl_module.log(f'train/{prefix}_probing_loss', loss, on_epoch=True, sync_dist=True)
+            pl_module.log(f'train/{prefix}_probing_loss', loss, on_step=True, on_epoch=True)
             loss.backward()
             optimizer.step()
 
@@ -125,7 +125,7 @@ class OnlineProbing(pl.Callback):
         self.val_nonlin_prob_acc.update(self.nonlinear_head(embeds), labels)
 
     def on_validation_epoch_end(self, trainer, pl_module):
-        pl_module.log(f'val/linear_probing_accuracy', self.val_lin_prob_acc.compute(), sync_dist=True)
+        pl_module.log(f'val/linear_probing_accuracy', self.val_lin_prob_acc.compute(), on_epoch=True)
         self.val_lin_prob_acc.reset()
-        pl_module.log(f'val/nonlinear_probing_accuracy', self.val_nonlin_prob_acc.compute(), sync_dist=True)
+        pl_module.log(f'val/nonlinear_probing_accuracy', self.val_nonlin_prob_acc.compute(), on_epoch=True)
         self.val_nonlin_prob_acc.reset()

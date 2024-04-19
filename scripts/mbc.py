@@ -6,7 +6,7 @@ from pytorch_lightning.callbacks import LearningRateMonitor
 from pytorch_lightning.strategies import DDPStrategy
 from pl_bolts.datamodules import CIFAR10DataModule
 
-from ssl_sandbox.pretrain.apm import AdversarialPredictibilityMinimization
+from ssl_sandbox.pretrain.mbc import MutualBinaryCodes
 from ssl_sandbox.eval import OnlineProbing
 from ssl_sandbox.pretrain.transforms import SimCLRViews
 
@@ -33,7 +33,6 @@ def main(args):
         num_workers=args.num_workers,
         normalize=True,
         batch_size=args.batch_size,
-        drop_last=True
     )
     image_size = 32
     blur = False
@@ -52,11 +51,10 @@ def main(args):
         views_number=10
     )
 
-    model = AdversarialPredictibilityMinimization(
+    model = MutualBinaryCodes(
         encoder_architecture='resnet50_cifar10',
-        prototype_dim=128,
-        num_prototypes=1024,
-        temp=0.1,
+        num_heads=1024,
+        head_hidden_dim=2048,
         lr=1e-2,
         weight_decay=1e-6,
         epochs=args.epochs,
@@ -72,7 +70,7 @@ def main(args):
 
     logger = TensorBoardLogger(
         save_dir=args.log_dir,
-        name=f'pretrain/cifar10/apm'
+        name=f'pretrain/cifar10/mbc'
     )
 
     trainer = pl.Trainer(
@@ -83,7 +81,6 @@ def main(args):
         devices=-1,
         # strategy=DDPStrategy(find_unused_parameters=False),
         max_epochs=args.epochs,
-        log_every_n_steps=10,
         precision=16
     )
     trainer.fit(model, datamodule=dm, ckpt_path=args.ckpt_path)

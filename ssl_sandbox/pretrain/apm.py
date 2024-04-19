@@ -9,7 +9,6 @@ import pytorch_lightning as pl
 
 from ssl_sandbox.nn.encoder import EncoderArchitecture, encoder
 from ssl_sandbox.nn.blocks import MLP
-from ssl_sandbox.nn.functional import entropy
 
 
 class AdversarialPredictibilityMinimization(pl.LightningModule):
@@ -19,7 +18,6 @@ class AdversarialPredictibilityMinimization(pl.LightningModule):
             prototype_dim: int,
             num_prototypes: int,
             temp: float,
-            prior_gamma: float,
             lr: float,
             weight_decay: float,
             epochs: int,
@@ -41,12 +39,9 @@ class AdversarialPredictibilityMinimization(pl.LightningModule):
         )
         self.prototypes = nn.Parameter(torch.zeros(num_prototypes, prototype_dim))
         nn.init.uniform_(self.prototypes, -(1. / prototype_dim) ** 0.5, (1. / prototype_dim) ** 0.5)
-        
-        self.log_priors = nn.Parameter(torch.log_softmax(torch.zeros(num_prototypes), dim=0), requires_grad=False)
 
         self.num_prototypes = num_prototypes
         self.temp = temp
-        self.prior_gamma = prior_gamma
         self.lr = lr
         self.weight_decay = weight_decay
         self.epochs = epochs
@@ -72,29 +67,23 @@ class AdversarialPredictibilityMinimization(pl.LightningModule):
         p_y = torch.softmax(l_y, dim=1)
         log_p_y = torch.log_softmax(l_y, dim=1)
 
-        # update log priors
-        self.log_priors.copy_(torch.logsumexp(torch.cat([
-            math.log(self.prior_gamma) + self.log_priors.unsqueeze(0),
-            math.log(1 - self.prior_gamma) - math.log(n) + log_p_x,
-        ]), dim=0))
+        priors = torch.mean(p_x, dim=0)
+        log_priors = torch.logsumexp(log_p_x, dim=0) - math.log(n)  # (num_prototypes,)
 
-        eva_ce = torch.sum(-p_x * self.log_priors, dim=1)
-        self.log(f'pretrain/eva_ce', eva_ce, on_step=True, on_epoch=True)
+        prior_entropy = -priors.mul(log_priors).sum()
+        self.log(f'pretrain/prior_entropy', prior_entropy, on_step=True, on_epoch=True)
 
-        bob_ce = torch.sum(-p_x * log_p_y, dim=1)
-        self.log(f'pretrain/bob_ce', bob_ce, on_step=True, on_epoch=True)
+        cross_entropy = -p_x.mul(log_p_y).sum(dim=1).mean()
+        self.log(f'pretrain/cross_entropy', cross_entropy, on_step=True, on_epoch=True)
 
-        loss = bob_ce - eva_ce
+        loss = cross_entropy - prior_entropy
         self.log(f'pretrain/loss', loss, on_step=True, on_epoch=True)
 
-        p_x_entropy = entropy(p_x, dim=1).mean()
+        p_x_entropy = -p_x.mul(log_p_x).sum(dim=1).mean()
         self.log(f'pretrain/p_x_entropy', p_x_entropy, on_step=True, on_epoch=True)
 
-        p_y_entropy = entropy(p_y, dim=1).mean()
+        p_y_entropy = -p_y.mul(log_p_y).sum(dim=1).mean()
         self.log(f'pretrain/p_y_entropy', p_y_entropy, on_step=True, on_epoch=True)
-
-        prior_entropy = entropy(torch.softmax(self.log_priors, dim=0), dim=0)
-        self.log(f'pretrain/prior_entropy', prior_entropy, on_step=True, on_epoch=True)
 
         return loss
 
